@@ -105,9 +105,9 @@
 <section class="hero teaser">
   <div class="container is-max-desktop">
     <div class="hero-body">
-      <img src="static/images/teaser_ours.png" alt="Teaser Image" style="width: 100%; height: auto;">
+      <img src="static/images/teaser.png" alt="Teaser Image" style="width: 100%; height: auto;">
       <h2 class="subtitle has-text-centered">
-        Our approach can predict SO(3)-invariant correspondences between rotated 3D shapes.
+        Given single or multi-view RGBD images, Affostruction performs generative reconstruction to complete occluded regions and grounds affordances on the full shape, enabling progressive improvement through affordance-driven active view selection.
       </h2>
     </div>
   </div>
@@ -123,7 +123,7 @@
         <h2 class="title is-3">Abstract</h2>
         <div class="content has-text-justified">
           <p>
-            Establishing accurate 3D correspondences between shapes stands as a pivotal challenge with profound implications for computer vision and robotics. However, existing self-supervised methods for this problem assume perfect input shape alignment, restricting their real-world applicability. In this work, we introduce a novel self-supervised Rotation-Invariant 3D correspondence learner with Local Shape Transform, dubbed RIST, that learns to establish dense correspondences between shapes even under challenging intra-class variations and arbitrary orientations. Specifically, RIST learns to dynamically formulate an SO(3)-invariant local shape transform for each point, which maps the SO(3)-equivariant global shape descriptor of the input shape to a local shape descriptor. These local shape descriptors are provided as inputs to our decoder to facilitate point cloud self- and cross-reconstruction. Our proposed self-supervised training pipeline encourages semantically corresponding points from different shapes to be mapped to similar local shape descriptors, enabling RIST to establish dense point-wise correspondences. RIST demonstrates state-of-the-art performances on 3D part label transfer and semantic keypoint transfer given arbitrarily rotated point cloud pairs, outperforming existing methods by significant margins.
+            This paper addresses the problem of affordance grounding from RGBD images of an object, which aims to localize surface regions corresponding to a text query that describes an action on the object. While existing methods predict affordance regions only on visible surfaces, we propose Affostruction, a generative framework that reconstructs complete geometry from partial observations and grounds affordances on the full shape including unobserved regions. We make three core contributions: generative multi-view reconstruction via sparse voxel fusion that extrapolates unseen geometry while maintaining constant token complexity, flow-based affordance grounding that captures inherent ambiguity in affordance distributions, and affordance-driven active view selection that leverages predicted affordances for intelligent viewpoint sampling. Affostruction achieves 19.1 aIoU on affordance grounding (40.4% improvement) and 32.67 IoU for 3D reconstruction (67.7% improvement), enabling accurate affordance prediction on complete shapes.
           </p>
         </div>
       </div>
@@ -137,67 +137,91 @@
 <section class="hero is-small">
   <div class="container is-max-desktop">
     <div class="column is-centered has-text-centered">
-      <h2 class="title is-3">RIST: 3D Rotation-Invariant Local Shape Transform</h2>
+      <h2 class="title is-3">Affostruction Framework Overview</h2>
           <figure class="image">
-            <img src="static/images/overview_cvpr_v3.png" alt="Overview of Proposed Method">
+            <img src="static/images/overview.png" alt="Affostruction Framework Overview">
           </figure>
-          <figcaption class="has-text-justified">The input point clouds are independently encoded to SO(3)-equivariant global shape descriptor and dynamic SO(3)-invariant point-wise local shape transforms. The local shape transforms map the global shape descriptor to local shape descriptors by infusing local semantics and geometry, which are used as inputs to the decoder for selfreconstruction. For cross-reconstruction, we apply the local shape transforms formulated from another point cloud to reconstruct the point cloud, ensuring that the local shape descriptors successfully capture generalizable local semantics and geometries. We supervise RIST via penalizing errors in self- and cross-reconstructions. At inference, we can leverage the local shape transforms for obtaining local shape descriptors, to identify the dense correspondences.</figcaption>
+          <figcaption class="has-text-justified">Our approach consists of three stages. (1) Generative multi-view reconstruction: DINOv2 features from multiple RGBD views are fused into sparse voxels using depth and camera parameters. A Flow Transformer conditioned on these multi-view features and trained with stochastic multi-view training extrapolates complete 3D structure from partial observations, decoded via frozen sparse structure decoder (left). (2) Flow-based affordance grounding: A Sparse Flow Transformer conditioned on CLIP-encoded text query generates affordance heatmap logits over the reconstructed geometry (center). (3) Affordance-driven active view selection: We select next-best viewpoints by maximizing visibility of high-affordance regions, using frozen mesh decoder for surface extraction (right). This enables affordance prediction on complete geometry from partial observations, with predicted affordances guiding view selection to prioritize functional regions.</figcaption>
     </div>
   </div>
 </section>
 <!-- End overview of proposed method -->
 
 
-<!-- Part Label Transfer -->
+<!-- 3D Reconstruction Results -->
 <section class="hero is-small">
   <div class="hero-body">
     <div class="container is-max-desktop has-text-centered">
-      <!-- Title -->
-      <h2 class="title is-3">Part Label Transfer Results</h2>
+      <h2 class="title is-3">3D Reconstruction Results on Toys4k</h2>
           <figure class="image">
-            <img src="static/images/part_label_transfer.png" alt="Overview of Proposed Method">
+            <img src="static/images/exp_reconstruction.png" alt="3D Reconstruction Results">
           </figure>
-          <figcaption class="has-text-centered">Average IoU (%) of part label transfer on ShapeNetPart</figcaption>
-      <!-- <h2 class="title is-3">Part Label Transfer</h2> -->
+    </div>
+  </div>
+</section>
+<!-- End 3D Reconstruction Results -->
+
+
+<!-- Complete 3D Affordance Grounding Results -->
+<section class="hero is-small">
+  <div class="hero-body">
+    <div class="container is-max-desktop has-text-centered">
+      <h2 class="title is-3">Complete 3D Affordance Grounding Results on Affogato-150K</h2>
+          <figure class="image">
+            <img src="static/images/exp_complete-affordance.png" alt="Complete 3D Affordance Grounding Results">
+          </figure>
+    </div>
+  </div>
+</section>
+<!-- End Complete 3D Affordance Grounding Results -->
+
+<!-- Partial 3D Affordance Grounding Results -->
+<section class="hero is-small">
+  <div class="hero-body">
+    <div class="container is-max-desktop has-text-centered">
+      <h2 class="title is-3">Partial 3D Affordance Grounding Results on Affogato-150K</h2>
+          <figure class="image">
+            <img src="static/images/exp_partial-affordance.png" alt="Partial 3D Affordance Grounding Results">
+          </figure>
+    </div>
+  </div>
+</section>
+<!-- End Partial 3D Affordance Grounding Results -->
+
+<!-- Qualitative Results -->
+<section class="hero is-small">
+  <div class="hero-body">
+    <div class="container is-max-desktop has-text-centered">
+      <h2 class="title is-3">Qualitative Results on Affogato-150K</h2>
       <div id="results-carousel" class="carousel results-carousel">
-       <div class="item">
-        <!-- Your image here -->
-        <img src="static/images/supp_qual_part_motorcycle.png" alt="MY ALT TEXT"/>
-        <h2 class="subtitle has-text-centered">
-          Part label transfer results on the motorcycle category
-        </h2>
+        <div class="item">
+          <img src="static/images/qual_partial-affordance-1.png" alt="Qualitative Results 1"/>
+        </div>
+        <div class="item">
+          <img src="static/images/qual_partial-affordance-2.png" alt="Qualitative Results 2"/>
+        </div>
+        <div class="item">
+          <img src="static/images/qual_partial-affordance-3.png" alt="Qualitative Results 3"/>
+        </div>
       </div>
-      <div class="item">
-        <!-- Your image here -->
-        <img src="static/images/supp_qual_part_airplane.png" alt="MY ALT TEXT"/>
-        <h2 class="subtitle has-text-centered">
-          Part label transfer results on the airplane category
-        </h2>
+    </div>
   </div>
-</div>
-</div>
 </section>
-<!-- End image carousel -->
+<!-- End Qualitative Results -->
 
-
-<!-- Keypoint Transfer -->
+<!-- Progressive Improvement -->
 <section class="hero is-small">
   <div class="hero-body">
     <div class="container is-max-desktop has-text-centered">
-      <!-- Title -->
-      <h2 class="title is-3">Keypoint Transfer Results</h2>
+      <h2 class="title is-3">Progressive Improvement via Active View Selection</h2>
           <figure class="image">
-            <img src="static/images/keypoint_transfer.png" alt="Overview of Proposed Method">
+            <img src="static/images/qual_progressive.png" alt="Progressive Improvement via Active View Selection">
           </figure>
-          <figcaption class="has-text-centered">Correspondences (%) of keypoint transfer on KeypointNet</figcaption>
-          <figure class="image">
-            <img src="static/images/qual_keypoint_transfer.png" alt="Overview of Proposed Method">
-          </figure>
-          <figcaption class="has-text-centered">Keypoint transfer results on the motorcycle and airplane categories</figcaption>
+          <figcaption class="has-text-justified">Starting from challenging viewpoints where target areas are barely visible, Affostruction progressively refines geometry and localization through an iterative cycle: (1) generative reconstruction extrapolates complete structure from partial observations, (2) affordance prediction on reconstructed geometry, and (3) active view selection targeting informative viewpoints. Each iteration improves both reconstruction quality and prediction accuracy, revealing the synergistic relationship between these tasks. While only the selected view is shown for clarity, subsequent iterations leverage all accumulated observations through multi-view fusion.</figcaption>
+    </div>
   </div>
-</div>
 </section>
-<!-- End image carousel -->
+<!-- End Progressive Improvement -->
 
 
 <!-- [HIDDEN - Video Presentation: To be added later]
@@ -239,12 +263,11 @@
     <div class="container is-max-desktop content">
       <h2 class="title">BibTeX</h2>
       <pre><code>
-        @inproceedings{park2024learning,
-          title={Learning SO(3)-Invariant Semantic Correspondence via Local Shape Transform},
-          author={Park, Chunghyun and Kim, Seungwook and Park, Jaesik and Cho, Minsu},
-          booktitle={Proceedings of the {IEEE/CVF} Conference on Computer Vision and Pattern Recognition (CVPR)},
-          month={June},
-          year={2024},
+        @article{park2026affostruction,
+          title={Affostruction: 3D Affordance Grounding with Generative Reconstruction},
+          author={Park, Chunghyun and Lee, Seunghyeon and Cho, Minsu},
+          journal={arXiv preprint arXiv:2601.09211},
+          year={2026},
          }
       </code></pre>
     </div>
