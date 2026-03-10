@@ -251,14 +251,14 @@ table.academic-table .na-cell {
 /* ===== References Section ===== */
 
 .references-entries {
-  font-size: 0.85rem;
-  line-height: 1.7;
+  font-size: 0.82rem;
+  line-height: 1;
   color: #444;
   text-align: left;
 }
 
 .references-entries p {
-  margin-bottom: 0.3rem;
+  margin-bottom: 0.1rem;
 }
 
 /* ===== BibTeX Section ===== */
