@@ -2,25 +2,19 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <!-- Meta tags for social media banners, these should be filled in appropriatly as they are your "business card" -->
-  <!-- Replace the content tag with appropriate information -->
-  <meta name="description" content="DESCRIPTION META TAG">
-  <meta property="og:title" content="SOCIAL MEDIA TITLE TAG"/>
-  <meta property="og:description" content="SOCIAL MEDIA DESCRIPTION TAG TAG"/>
-  <meta property="og:url" content="URL OF THE WEBSITE"/>
-  <!-- Path to banner image, should be in the path listed below. Optimal dimenssions are 1200X630-->
-  <meta property="og:image" content="static/image/your_banner_image.png" />
+  <meta name="description" content="Affostruction: 3D Affordance Grounding with Generative Reconstruction. A generative framework that reconstructs complete geometry from partial observations and grounds affordances on the full shape. CVPR 2026.">
+  <meta property="og:title" content="Affostruction: 3D Affordance Grounding with Generative Reconstruction"/>
+  <meta property="og:description" content="A generative framework that reconstructs complete geometry from partial RGBD observations and grounds affordances on the full 3D shape including unobserved regions. CVPR 2026."/>
+  <meta property="og:url" content="https://chrockey.github.io/Affostruction/"/>
+  <meta property="og:image" content="static/images/teaser.png" />
   <meta property="og:image:width" content="1200"/>
   <meta property="og:image:height" content="630"/>
 
-
-  <meta name="twitter:title" content="TWITTER BANNER TITLE META TAG">
-  <meta name="twitter:description" content="TWITTER BANNER DESCRIPTION META TAG">
-  <!-- Path to banner image, should be in the path listed below. Optimal dimenssions are 1200X600-->
-  <meta name="twitter:image" content="static/images/your_twitter_banner_image.png">
+  <meta name="twitter:title" content="Affostruction: 3D Affordance Grounding with Generative Reconstruction">
+  <meta name="twitter:description" content="A generative framework for complete 3D reconstruction and affordance grounding from partial RGBD observations. CVPR 2026.">
+  <meta name="twitter:image" content="static/images/teaser.png">
   <meta name="twitter:card" content="summary_large_image">
-  <!-- Keywords for your paper to be indexed by-->
-  <meta name="keywords" content="KEYWORDS SHOULD BE PLACED HERE">
+  <meta name="keywords" content="3D affordance grounding, generative reconstruction, RGBD, 3D vision, CVPR 2026, Affostruction, sparse voxel fusion, flow-based affordance, active view selection">
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
 
@@ -58,14 +52,14 @@
               <span class="author-block">
                 <a href="https://chrockey.github.io/" target="_blank">Chunghyun Park</a><sup>1</sup>,</span>
                 <span class="author-block">
-                  <a href="https://llishyun.github.io/" target="_blank">Seunghyeon Lee</a><sup>2</sup>,</span>
+                  <a href="https://llishyun.github.io/" target="_blank">Seunghyeon Lee</a><sup>1</sup>,</span>
                   <span class="author-block">
-                    <a href="https://cvlab.postech.ac.kr/~mcho/" target="_blank">Minsu Cho</a><sup>1,3</sup>
+                    <a href="https://cvlab.postech.ac.kr/~mcho/" target="_blank">Minsu Cho</a><sup>1,2</sup>
                   </span>
                   </div>
 
                   <div class="is-size-5 publication-authors">
-                    <span class="author-block"><sup>1</sup>POSTECH, <sup>2</sup>Ewha Womans University, <sup>3</sup>RLWRLD<br>CVPR 2026</span>
+                    <span class="author-block"><sup>1</sup>POSTECH, <sup>2</sup>RLWRLD<br>CVPR 2026</span>
                   </div>
 
                   <div class="column has-text-centered">
@@ -141,7 +135,7 @@
           <figure class="image">
             <img src="static/images/overview.png" alt="Affostruction Framework Overview">
           </figure>
-          <figcaption class="has-text-justified">Our approach consists of three stages. (1) Generative multi-view reconstruction: DINOv2 features from multiple RGBD views are fused into sparse voxels using depth and camera parameters. A Flow Transformer conditioned on these multi-view features and trained with stochastic multi-view training extrapolates complete 3D structure from partial observations, decoded via frozen sparse structure decoder (left). (2) Flow-based affordance grounding: A Sparse Flow Transformer conditioned on CLIP-encoded text query generates affordance heatmap logits over the reconstructed geometry (center). (3) Affordance-driven active view selection: We select next-best viewpoints by maximizing visibility of high-affordance regions, using frozen mesh decoder for surface extraction (right). This enables affordance prediction on complete geometry from partial observations, with predicted affordances guiding view selection to prioritize functional regions.</figcaption>
+          <figcaption class="figure-caption has-text-justified">Our approach consists of three stages. (1) Generative multi-view reconstruction: DINOv2 features from multiple RGBD views are fused into sparse voxels using depth and camera parameters. A Flow Transformer conditioned on these multi-view features and trained with stochastic multi-view training extrapolates complete 3D structure from partial observations, decoded via frozen sparse structure decoder (left). (2) Flow-based affordance grounding: A Sparse Flow Transformer conditioned on CLIP-encoded text query generates affordance heatmap logits over the reconstructed geometry (center). (3) Affordance-driven active view selection: We select next-best viewpoints by maximizing visibility of high-affordance regions, using frozen mesh decoder for surface extraction (right). This enables affordance prediction on complete geometry from partial observations, with predicted affordances guiding view selection to prioritize functional regions.</figcaption>
     </div>
   </div>
 </section>
@@ -153,9 +147,95 @@
   <div class="hero-body">
     <div class="container is-max-desktop has-text-centered">
       <h2 class="title is-3">3D Reconstruction Results on Toys4k</h2>
-          <figure class="image">
-            <img src="static/images/exp_reconstruction.png" alt="3D Reconstruction Results">
-          </figure>
+      <div class="academic-table-wrapper">
+        <table class="academic-table">
+          <thead>
+            <tr>
+              <th rowspan="2">Method</th>
+              <th rowspan="2">Depth</th>
+              <th colspan="5">Geometry</th>
+              <th colspan="2">Appearance</th>
+            </tr>
+            <tr class="sub-header">
+              <th>IoU&uarr;</th>
+              <th>CD&darr;</th>
+              <th>F-score&uarr;</th>
+              <th>PSNR-N&uarr;</th>
+              <th>LPIPS-N&darr;</th>
+              <th>PSNR&uarr;</th>
+              <th>LPIPS&darr;</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Shap-E [1]</td>
+              <td></td>
+              <td>6.39</td>
+              <td>0.6724</td>
+              <td>0.0096</td>
+              <td>16.16</td>
+              <td>0.3014</td>
+              <td>13.07</td>
+              <td>0.4358</td>
+            </tr>
+            <tr>
+              <td>InstantMesh [2]</td>
+              <td></td>
+              <td>13.68</td>
+              <td>0.4063</td>
+              <td>0.0391</td>
+              <td>20.46</td>
+              <td>0.2463</td>
+              <td>16.59</td>
+              <td>0.2989</td>
+            </tr>
+            <tr>
+              <td>LGM [3]</td>
+              <td></td>
+              <td>9.39</td>
+              <td>0.5660</td>
+              <td>0.0267</td>
+              <td>17.03</td>
+              <td>0.3974</td>
+              <td>13.59</td>
+              <td>0.4126</td>
+            </tr>
+            <tr>
+              <td>TRELLIS [4]</td>
+              <td></td>
+              <td>19.49</td>
+              <td>0.3694</td>
+              <td>0.0496</td>
+              <td>20.96</td>
+              <td>0.2089</td>
+              <td>17.61</td>
+              <td>0.2435</td>
+            </tr>
+            <tr class="group-separator">
+              <td>MCC [5]</td>
+              <td><span class="checkmark">&#10003;</span></td>
+              <td>21.11</td>
+              <td>0.3299</td>
+              <td>0.0648</td>
+              <td class="na-cell">N/A</td>
+              <td class="na-cell">N/A</td>
+              <td class="na-cell">N/A</td>
+              <td class="na-cell">N/A</td>
+            </tr>
+            <tr class="ours-row">
+              <td>Affostruction (ours)</td>
+              <td><span class="checkmark">&#10003;</span></td>
+              <td class="best-val">32.67</td>
+              <td class="best-val">0.2427</td>
+              <td class="best-val">0.0997</td>
+              <td class="best-val">22.64</td>
+              <td class="best-val">0.1421</td>
+              <td class="best-val">18.84</td>
+              <td class="best-val">0.1922</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 </section>
@@ -163,13 +243,53 @@
 
 
 <!-- Complete 3D Affordance Grounding Results -->
-<section class="hero is-small">
+<section class="hero is-small section-alt-bg">
   <div class="hero-body">
     <div class="container is-max-desktop has-text-centered">
       <h2 class="title is-3">Complete 3D Affordance Grounding Results on Affogato-150K</h2>
-          <figure class="image" style="max-width: 60%; margin: 0 auto;">
-            <img src="static/images/exp_complete-affordance.png" alt="Complete 3D Affordance Grounding Results">
-          </figure>
+      <div class="academic-table-wrapper">
+        <table class="academic-table">
+          <thead>
+            <tr>
+              <th>Method</th>
+              <th>aIoU&uarr;</th>
+              <th>AUC&uarr;</th>
+              <th>SIM&uarr;</th>
+              <th>MAE&darr;</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>OpenAD [6]</td>
+              <td>3.1</td>
+              <td>64.8</td>
+              <td>0.329</td>
+              <td>0.150</td>
+            </tr>
+            <tr>
+              <td>PointRefer [7]</td>
+              <td>10.5</td>
+              <td>76.1</td>
+              <td>0.405</td>
+              <td>0.120</td>
+            </tr>
+            <tr>
+              <td>Espresso-3D [8]</td>
+              <td>13.6</td>
+              <td class="best-val">79.0</td>
+              <td class="best-val">0.429</td>
+              <td class="best-val">0.111</td>
+            </tr>
+            <tr class="ours-row">
+              <td>Affostruction (ours)</td>
+              <td class="best-val">19.1</td>
+              <td>72.0</td>
+              <td>0.426</td>
+              <td>0.217</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 </section>
@@ -180,16 +300,87 @@
   <div class="hero-body">
     <div class="container is-max-desktop has-text-centered">
       <h2 class="title is-3">Partial 3D Affordance Grounding Results on Affogato-150K</h2>
-          <figure class="image" style="max-width: 60%; margin: 0 auto;">
-            <img src="static/images/exp_partial-affordance.png" alt="Partial 3D Affordance Grounding Results">
-          </figure>
+      <div class="academic-table-wrapper">
+        <table class="academic-table">
+          <thead>
+            <tr>
+              <th>Method</th>
+              <th>Recon.</th>
+              <th>aIoU&uarr;</th>
+              <th>aCD&darr;</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>OpenAD [6]</td>
+              <td></td>
+              <td>0.38</td>
+              <td>0.4165</td>
+            </tr>
+            <tr>
+              <td>PointRefer [7]</td>
+              <td></td>
+              <td>0.53</td>
+              <td>0.3072</td>
+            </tr>
+            <tr>
+              <td>Espresso-3D [8]</td>
+              <td></td>
+              <td>0.60</td>
+              <td>0.2885</td>
+            </tr>
+            <tr class="group-separator">
+              <td>TRELLIS [4] + OpenAD [6]</td>
+              <td><span class="checkmark">&#10003;</span></td>
+              <td>1.49</td>
+              <td>0.1671</td>
+            </tr>
+            <tr>
+              <td>TRELLIS [4] + PointRefer [7]</td>
+              <td><span class="checkmark">&#10003;</span></td>
+              <td>2.05</td>
+              <td>0.1576</td>
+            </tr>
+            <tr>
+              <td>TRELLIS [4] + Espresso-3D [8]</td>
+              <td><span class="checkmark">&#10003;</span></td>
+              <td>2.23</td>
+              <td>0.1568</td>
+            </tr>
+            <tr class="group-separator">
+              <td>MCC [5] + OpenAD [6]</td>
+              <td><span class="checkmark">&#10003;</span></td>
+              <td>3.34</td>
+              <td>0.1503</td>
+            </tr>
+            <tr>
+              <td>MCC [5] + PointRefer [7]</td>
+              <td><span class="checkmark">&#10003;</span></td>
+              <td>4.19</td>
+              <td>0.1397</td>
+            </tr>
+            <tr>
+              <td>MCC [5] + Espresso-3D [8]</td>
+              <td><span class="checkmark">&#10003;</span></td>
+              <td>4.74</td>
+              <td>0.1354</td>
+            </tr>
+            <tr class="ours-row">
+              <td>Affostruction (ours)</td>
+              <td><span class="checkmark">&#10003;</span></td>
+              <td class="best-val">9.26</td>
+              <td class="best-val">0.1044</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 </section>
 <!-- End Partial 3D Affordance Grounding Results -->
 
 <!-- Qualitative Results -->
-<section class="hero is-small">
+<section class="hero is-small section-alt-bg">
   <div class="hero-body">
     <div class="container is-max-desktop has-text-centered">
       <h2 class="title is-3">Qualitative Results on Affogato-150K</h2>
@@ -217,7 +408,7 @@
           <figure class="image" style="max-width: 80%; margin: 0 auto;">
             <img src="static/images/qual_progressive.png" alt="Progressive Improvement via Active View Selection">
           </figure>
-          <figcaption class="has-text-justified">Starting from challenging viewpoints where target areas are barely visible, Affostruction progressively refines geometry and localization through an iterative cycle: (1) generative reconstruction extrapolates complete structure from partial observations, (2) affordance prediction on reconstructed geometry, and (3) active view selection targeting informative viewpoints. Each iteration improves both reconstruction quality and prediction accuracy, revealing the synergistic relationship between these tasks. While only the selected view is shown for clarity, subsequent iterations leverage all accumulated observations through multi-view fusion.</figcaption>
+          <figcaption class="figure-caption has-text-justified">Starting from challenging viewpoints where target areas are barely visible, Affostruction progressively refines geometry and localization through an iterative cycle: (1) generative reconstruction extrapolates complete structure from partial observations, (2) affordance prediction on reconstructed geometry, and (3) active view selection targeting informative viewpoints. Each iteration improves both reconstruction quality and prediction accuracy, revealing the synergistic relationship between these tasks. While only the selected view is shown for clarity, subsequent iterations leverage all accumulated observations through multi-view fusion.</figcaption>
     </div>
   </div>
 </section>
@@ -258,18 +449,39 @@
 [END HIDDEN - Poster] -->
 
 
+<!-- References -->
+<section class="hero is-small">
+  <div class="hero-body">
+    <div class="container is-max-desktop">
+      <h2 class="title is-3 has-text-centered">References</h2>
+      <div class="content references-list">
+        <div class="references-entries">
+          <p>[1] H. Jun and A. Nichol, "Shap-E: Generating Conditional 3D Implicit Functions," <i>arXiv preprint arXiv:2305.02463</i>, 2023.</p>
+          <p>[2] J. Xu, W. Cheng, Y. Gao, X. Wang, S. Gao, and Y. Shan, "InstantMesh: Efficient 3D Mesh Generation from a Single Image with Sparse-View Large Reconstruction Models," <i>arXiv preprint arXiv:2404.07191</i>, 2024.</p>
+          <p>[3] J. Tang, Z. Ren, H. Zhou, Z. Liu, and G. Zeng, "LGM: Large Multi-View Gaussian Model for High-Resolution 3D Content Creation," in <i>ECCV</i>, 2024.</p>
+          <p>[4] J. Xiang, X. Zeng, Z. Wu, Y. Lu, Y. Li, M.-H. Chen, and S.-H. Zhang, "TRELLIS: Structured 3D Latents for Scalable and Versatile 3D Generation," in <i>CVPR</i>, 2025.</p>
+          <p>[5] C.-Y. Wu, J. Johnson, J. Malik, C. Feichtenhofer, and G. Gkioxari, "Multiview Compressive Coding for 3D Reconstruction," in <i>CVPR</i>, 2023.</p>
+          <p>[6] T. Nguyen, M. N. Vu, A. Vuong, D. Nguyen, T. Vo, N. Le, and A. Nguyen, "Open-Vocabulary Affordance Detection in 3D Point Clouds," in <i>IROS</i>, 2023.</p>
+          <p>[7] T. Nguyen, M. N. Vu, B. Huang, T. V. Vo, V. Truong, N. Le, T. Vo, B. Le, and A. Nguyen, "Language-Conditioned Affordance-Pose Detection in 3D Point Clouds," in <i>ICRA</i>, 2024.</p>
+          <p>[8] J. Lee, E. Park, C. Park, D. Kang, and M. Cho, "Affogato: Learning Open-Vocabulary Affordance Grounding with Automated Data Generation at Scale," <i>arXiv preprint arXiv:2506.12009</i>, 2025.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- End References -->
+
+
 <!--BibTex citation -->
   <section class="section" id="BibTeX">
     <div class="container is-max-desktop content">
       <h2 class="title">BibTeX</h2>
-      <pre><code>
-        @inproceedings{park2026affostruction,
-          title={Affostruction: 3D Affordance Grounding with Generative Reconstruction},
-          author={Park, Chunghyun and Lee, Seunghyeon and Cho, Minsu},
-          booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
-          year={2026},
-         }
-      </code></pre>
+      <pre><code>@inproceedings{park2026affostruction,
+  title={Affostruction: 3D Affordance Grounding with Generative Reconstruction},
+  author={Park, Chunghyun and Lee, Seunghyeon and Cho, Minsu},
+  booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+  year={2026},
+}</code></pre>
     </div>
 </section>
 <!--End BibTex citation -->

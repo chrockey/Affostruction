@@ -129,9 +129,180 @@ body {
   background: #000000;
 }
 
-.eql-cntrb { 
+.eql-cntrb {
   font-size: smaller;
 }
 
 
+/* ===== Section Spacing & Visual Rhythm ===== */
+
+section.hero.is-small .hero-body {
+  padding-top: 2.5rem;
+  padding-bottom: 2.5rem;
+}
+
+section .title.is-3 {
+  margin-bottom: 1.5rem;
+}
+
+/* Alternating section background */
+.section-alt-bg {
+  background-color: #fafafa;
+}
+
+/* ===== Figure Captions ===== */
+
+figcaption,
+.figure-caption {
+  font-size: 0.9rem;
+  font-style: italic;
+  color: #555;
+  padding: 0.75rem 1rem 0;
+  line-height: 1.5;
+}
+
+/* ===== Teaser ===== */
+
+.teaser .subtitle {
+  font-size: 0.95rem;
+  color: #555;
+  line-height: 1.6;
+  margin-top: 1rem;
+}
+
+/* ===== Academic Tables (LaTeX-like) ===== */
+
+.academic-table-wrapper {
+  overflow-x: auto;
+  margin: 1rem auto 0.5rem;
+}
+
+table.academic-table {
+  border-collapse: collapse;
+  width: auto;
+  margin: 0 auto;
+  font-size: 0.9rem;
+  font-family: 'Noto Sans', sans-serif;
+}
+
+table.academic-table thead tr:first-child {
+  border-top: 2px solid #333;
+}
+
+table.academic-table thead tr:last-child {
+  border-bottom: 1.5px solid #333;
+}
+
+table.academic-table tbody tr:last-child {
+  border-bottom: 2px solid #333;
+}
+
+table.academic-table th,
+table.academic-table td {
+  padding: 0.45rem 0.75rem;
+  text-align: center;
+  vertical-align: middle;
+  border: none;
+}
+
+table.academic-table th:first-child,
+table.academic-table td:first-child {
+  text-align: left;
+}
+
+table.academic-table thead th {
+  font-weight: 600;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+table.academic-table thead tr.sub-header th {
+  border-bottom: 1px solid #aaa;
+  font-weight: 500;
+  font-size: 0.82rem;
+}
+
+table.academic-table tbody tr.group-separator td {
+  border-top: 1px solid #ccc;
+}
+
+table.academic-table tbody tr.ours-row {
+  background-color: #eef4fb;
+}
+
+table.academic-table tbody tr.ours-row td {
+  font-weight: 500;
+}
+
+table.academic-table tbody tr td.best-val {
+  font-weight: 700;
+}
+
+table.academic-table .checkmark {
+  color: #2d8a4e;
+  font-weight: 400;
+}
+
+table.academic-table .na-cell {
+  color: #999;
+  font-style: italic;
+}
+
+/* ===== References Section ===== */
+
+.references-entries {
+  font-size: 0.85rem;
+  line-height: 1.7;
+  color: #444;
+  text-align: left;
+}
+
+.references-entries p {
+  margin-bottom: 0.3rem;
+}
+
+/* ===== BibTeX Section ===== */
+
+#BibTeX {
+  background-color: #fafafa;
+}
+
+#BibTeX pre {
+  background-color: #f5f5f5;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  padding: 1.25rem 1.5rem;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  overflow-x: auto;
+}
+
+#BibTeX pre code {
+  color: #333;
+}
+
+/* ===== Footer ===== */
+
+.footer {
+  padding: 1.5rem 1.5rem;
+  background-color: #f5f5f5;
+}
+
+.footer .content p {
+  font-size: 0.85rem;
+  color: #888;
+}
+
+/* ===== Responsive Tables ===== */
+
+@media screen and (max-width: 768px) {
+  table.academic-table {
+    font-size: 0.78rem;
+  }
+
+  table.academic-table th,
+  table.academic-table td {
+    padding: 0.35rem 0.5rem;
+  }
+}
 
