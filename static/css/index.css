@@ -1,5 +1,5 @@
 body {
-  font-family: 'Noto Sans', sans-serif;
+  font-family: 'Google Sans', sans-serif;
 }
 
 
@@ -182,7 +182,7 @@ table.academic-table {
   width: auto;
   margin: 0 auto;
   font-size: 0.9rem;
-  font-family: 'Noto Sans', sans-serif;
+  font-family: 'Google Sans', sans-serif;
 }
 
 table.academic-table thead tr:first-child {
