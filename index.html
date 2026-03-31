@@ -89,7 +89,7 @@
             </div>
 
             <p class="tldr" style="margin-top: 1.5rem; font-size: 0.95rem; color: #475569; line-height: 1.6;">
-              <strong style="color: #A61955;">TL;DR:</strong> Generative 3D reconstruction from partial RGBD to ground affordances on unobserved surfaces.
+              <strong style="color: #A61955;">TL;DR:</strong> Full-shape affordance grounding from partial RGBD via generative reconstruction of unobserved surfaces.
             </p>
           </div>
         </div>
@@ -509,12 +509,18 @@
   <section class="section" id="BibTeX">
     <div class="container is-max-desktop content">
       <h2 class="title section-title">BibTeX</h2>
-      <pre><code>@inproceedings{park2026affostruction,
+      <div class="bibtex-wrapper">
+        <button class="bibtex-copy-btn" onclick="copyBibtex(this)" title="Copy to clipboard">
+          <svg class="icon-copy" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          <svg class="icon-check" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><polyline points="20 6 9 17 4 12"/></svg>
+        </button>
+        <pre><code>@inproceedings{park2026affostruction,
   title={Affostruction: 3D Affordance Grounding with Generative Reconstruction},
   author={Park, Chunghyun and Lee, Seunghyeon and Cho, Minsu},
   booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
   year={2026},
 }</code></pre>
+      </div>
     </div>
 </section>
 <!--End BibTex citation -->
@@ -544,5 +550,20 @@
 
     <!-- End of Statcounter Code -->
 
+  <script>
+  function copyBibtex(btn) {
+    const code = btn.closest('.bibtex-wrapper').querySelector('code');
+    navigator.clipboard.writeText(code.textContent).then(function() {
+      btn.querySelector('.icon-copy').style.display = 'none';
+      btn.querySelector('.icon-check').style.display = 'block';
+      btn.classList.add('copied');
+      setTimeout(function() {
+        btn.querySelector('.icon-copy').style.display = 'block';
+        btn.querySelector('.icon-check').style.display = 'none';
+        btn.classList.remove('copied');
+      }, 2000);
+    });
+  }
+  </script>
   </body>
   </html>

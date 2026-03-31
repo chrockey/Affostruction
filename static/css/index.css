@@ -457,6 +457,42 @@ table.academic-table .na-cell {
   color: #e2e8f0;
 }
 
+.bibtex-wrapper {
+  position: relative;
+}
+
+.bibtex-copy-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 6px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s, background 0.2s, color 0.2s;
+  z-index: 1;
+}
+
+.bibtex-wrapper:hover .bibtex-copy-btn {
+  opacity: 1;
+}
+
+.bibtex-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #e2e8f0;
+}
+
+.bibtex-copy-btn.copied {
+  color: #4ade80;
+  border-color: rgba(74, 222, 128, 0.4);
+}
+
 /* ===== Footer ===== */
 
 .footer {
