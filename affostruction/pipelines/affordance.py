@@ -1,0 +1,244 @@
+"""
+AffordancePipeline: text-conditioned affordance heatmap flow.
+
+Loads an ``ElasticSLatFlowModel`` denoiser + a CLIP text conditioner and
+runs CFG flow-matching sampling over sparse coords produced by the
+reconstruction pipeline. The output is a per-voxel logit / probability
+for each input coord.
+"""
+
+import glob
+import json
+import os
+from typing import Optional, Tuple
+
+import torch
+import torch.nn as nn
+from huggingface_hub import hf_hub_download
+
+from .. import models
+from ..modules import sparse as sp
+from ..modules.text_conditioner import CLIPTextConditioner
+from .samplers import FlowEulerCfgSampler
+
+
+HF_DEFAULT_REPO = "chrockey/Affostruction"
+HF_AFFO_SUBFOLDER = "affordance"
+
+
+def _resolve_affo_artifacts_hf(repo_id: str) -> Tuple[str, str]:
+    """Fetch (config.json, model.safetensors) from the affordance subfolder."""
+    print(f"Downloading affordance checkpoint from HF: {repo_id}/{HF_AFFO_SUBFOLDER}")
+    config_path = hf_hub_download(
+        repo_id=repo_id, filename=f"{HF_AFFO_SUBFOLDER}/config.json"
+    )
+    ckpt_path = hf_hub_download(
+        repo_id=repo_id, filename=f"{HF_AFFO_SUBFOLDER}/model.safetensors"
+    )
+    return config_path, ckpt_path
+
+
+def _resolve_affo_artifacts_local(src_dir: str) -> Tuple[str, str]:
+    """Resolve config + latest denoiser_ema .pt from a training output dir.
+
+    Dev-only path. The HF download in ``_resolve_affo_artifacts_hf`` is the
+    default for end-users. This branch lets you point at a fresh training
+    output dir (e.g. ``outputs/heatmap_flow-focal_txt_dit_B_64l8p2_fp16_1m``)
+    before re-running ``scripts/upload_to_hf.py``. Picks the latest
+    ``ckpts/denoiser_ema*.pt`` by filename sort (matches the upload script).
+    """
+    config_path = os.path.join(src_dir, "config.json")
+    if not os.path.isfile(config_path):
+        raise FileNotFoundError(f"Affordance config not found: {config_path}")
+    candidates = sorted(glob.glob(os.path.join(src_dir, "ckpts", "denoiser_ema*.pt")))
+    if not candidates:
+        raise FileNotFoundError(
+            f"No denoiser_ema*.pt in {os.path.join(src_dir, 'ckpts')}"
+        )
+    return config_path, candidates[-1]
+
+
+def _normalize_affo_config(raw: dict) -> dict:
+    """Map either the training config or the filtered inference config to a
+    flat dict with keys ``denoiser``, ``text_cond_model``, ``sigma_min``,
+    ``noise_scale``."""
+    if "models" in raw and "trainer" in raw:
+        trainer_args = raw["trainer"]["args"]
+        return {
+            "denoiser": raw["models"]["denoiser"],
+            "text_cond_model": trainer_args.get(
+                "text_cond_model", "openai/clip-vit-large-patch14"
+            ),
+            "sigma_min": float(trainer_args.get("sigma_min", 1e-5)),
+            "noise_scale": float(trainer_args.get("noise_scale", 5.0)),
+        }
+    return {
+        "denoiser": raw["denoiser"],
+        "text_cond_model": raw.get(
+            "text_cond_model", "openai/clip-vit-large-patch14"
+        ),
+        "sigma_min": float(raw.get("sigma_min", 1e-5)),
+        "noise_scale": float(raw.get("noise_scale", 5.0)),
+    }
+
+
+def _load_state_dict(ckpt_path: str) -> dict:
+    """Load a state dict from either a safetensors file or a torch .pt."""
+    if ckpt_path.endswith(".safetensors"):
+        from safetensors.torch import load_file as load_safetensors
+
+        return load_safetensors(ckpt_path)
+    state = torch.load(ckpt_path, map_location="cpu", weights_only=True)
+    if isinstance(state, dict) and "state_dict" in state:
+        state = state["state_dict"]
+    return state
+
+
+class AffordancePipeline:
+    """Text-conditioned affordance heatmap flow."""
+
+    DEFAULT_STEPS = 50
+    DEFAULT_CFG_STRENGTH = 3.0
+
+    def __init__(
+        self,
+        denoiser: nn.Module,
+        text_conditioner: CLIPTextConditioner,
+        sigma_min: float = 1e-5,
+        noise_scale: float = 5.0,
+    ):
+        self.models: dict = {
+            "denoiser": denoiser,
+            "text_conditioner": text_conditioner,
+        }
+        self.sigma_min = sigma_min
+        self.noise_scale = noise_scale
+        self.sampler = FlowEulerCfgSampler(sigma_min=sigma_min)
+        self.device = "cpu"
+        for m in self.models.values():
+            m.eval()
+
+    @staticmethod
+    def from_pretrained(source: str = HF_DEFAULT_REPO) -> "AffordancePipeline":
+        """Load from either an HF repo id or a local training output dir.
+
+        ``source`` defaults to the public HF repo; passing an existing local
+        directory triggers the dev-only local loader instead (see
+        ``_resolve_affo_artifacts_local``).
+        """
+        if os.path.isdir(source):
+            # Dev path: load directly from a training output dir without
+            # going through HF. End-users should leave this on the HF default.
+            config_path, ckpt_path = _resolve_affo_artifacts_local(source)
+        else:
+            config_path, ckpt_path = _resolve_affo_artifacts_hf(source)
+
+        with open(config_path) as f:
+            raw_config = json.load(f)
+        config = _normalize_affo_config(raw_config)
+
+        denoiser_name = config["denoiser"]["name"]
+        denoiser_args = config["denoiser"]["args"]
+        print(f"Building affordance denoiser {denoiser_name}...")
+        denoiser = getattr(models, denoiser_name)(**denoiser_args)
+
+        print(f"Loading affordance weights from: {ckpt_path}")
+        state = _load_state_dict(ckpt_path)
+        denoiser.load_state_dict(state)
+
+        print(f"Loading text conditioner: {config['text_cond_model']}")
+        text_conditioner = CLIPTextConditioner(name=config["text_cond_model"])
+
+        return AffordancePipeline(
+            denoiser=denoiser,
+            text_conditioner=text_conditioner,
+            sigma_min=config["sigma_min"],
+            noise_scale=config["noise_scale"],
+        )
+
+    def cuda(self) -> "AffordancePipeline":
+        self.device = "cuda"
+        for k, m in self.models.items():
+            self.models[k] = m.cuda()
+        return self
+
+    def cpu(self) -> "AffordancePipeline":
+        self.device = "cpu"
+        for k, m in self.models.items():
+            self.models[k] = m.cpu()
+        return self
+
+    @torch.no_grad()
+    def run(
+        self,
+        coords: torch.Tensor,
+        query: str,
+        *,
+        steps: int = DEFAULT_STEPS,
+        cfg_strength: float = DEFAULT_CFG_STRENGTH,
+        noise_scale: Optional[float] = None,
+        seed: Optional[int] = None,
+        verbose: bool = True,
+    ) -> dict:
+        """
+        Args:
+            coords: (N, 4) int tensor ``[batch, x, y, z]`` from the
+                reconstruction's sparse structure decoder. Single-batch only;
+                ``coords[:, 0]`` must all equal 0.
+            query: text query (e.g. ``"grasp"``).
+            steps: flow-matching Euler steps.
+            cfg_strength: classifier-free guidance strength.
+            noise_scale: override the training-time noise scale (default
+                5.0 to match the trainer's logit-space noise).
+            seed: optional torch seed.
+
+        Returns:
+            dict with:
+            - ``coords``: (N, 4) input coords (echoed back)
+            - ``logits``: (N,) flow-matching denoised logits
+            - ``probs`` : (N,) sigmoid(logits)
+            - ``query`` : the input query
+        """
+        if not isinstance(query, str):
+            raise TypeError("AffordancePipeline.run expects a single string query")
+        if coords.numel() == 0:
+            raise ValueError("coords is empty — reconstruction returned no voxels")
+
+        denoiser = self.models["denoiser"]
+        text_cond = self.models["text_conditioner"]
+
+        coords = coords.to(self.device).int()
+        if int(coords[:, 0].max().item()) != 0 or int(coords[:, 0].min().item()) != 0:
+            raise ValueError(
+                "AffordancePipeline.run only supports single-batch coords "
+                "(coords[:, 0] must be all zero)."
+            )
+
+        sigma = self.noise_scale if noise_scale is None else float(noise_scale)
+        if seed is not None:
+            torch.manual_seed(seed)
+
+        in_channels = denoiser.in_channels
+        feats = torch.randn(coords.shape[0], in_channels, device=self.device) * sigma
+        noise = sp.SparseTensor(feats=feats, coords=coords)
+
+        cond = text_cond.encode([query])
+        neg_cond = text_cond.null_cond()
+
+        sample_result = self.sampler.sample(
+            denoiser,
+            noise=noise,
+            cond=cond,
+            neg_cond=neg_cond,
+            steps=steps,
+            cfg_strength=cfg_strength,
+            verbose=verbose,
+        )
+        logits = sample_result.samples.feats.squeeze(-1).float()
+        probs = torch.sigmoid(logits)
+        return {
+            "coords": coords,
+            "logits": logits,
+            "probs": probs,
+            "query": query,
+        }

@@ -1,0 +1,35 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+
+# Local files
+.claude/
+outputs/
+*.log
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+
+results
+trellis_data
+
+example_results/
+
+# Local paper / supplementary
+paper.pdf
+*.pdf
+
+# Caveman compress backups
+*.original.md

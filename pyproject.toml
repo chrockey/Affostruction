@@ -1,0 +1,90 @@
+[project]
+name = "affostruction"
+version = "0.1.0"
+description = "Affostruction: 3D Affordance Grounding with Generative Reconstruction"
+readme = "README.md"
+requires-python = ">=3.10,<3.11"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Chunghyun Park" },
+    { name = "Seunghyeon Lee" },
+    { name = "Minsu Cho" },
+]
+dependencies = [
+    "torch==2.5.0",
+    "torchvision==0.20.0",
+    "xformers==0.0.28.post2",
+    "pillow",
+    "imageio",
+    "imageio-ffmpeg",
+    "tqdm",
+    "easydict",
+    "opencv-python-headless",
+    "scipy",
+    "ninja",
+    "rembg",
+    "onnxruntime",
+    "trimesh",
+    "open3d",
+    "xatlas",
+    "pyvista",
+    "pymeshfix",
+    "igraph",
+    "transformers",
+    "spconv-cu124",
+    "gradio",
+    "gradio-litmodel3d",
+    "utils3d",
+    "kaolin==0.18.0",
+    "fire",
+    "huggingface-hub",
+    "viser",
+    "rootutils",
+    "omegaconf",
+    "wandb",
+    "ipdb",
+    "torchmetrics",
+    "einops",
+    "safetensors",
+    "timm",
+    "lpips",
+    "scikit-learn",
+    "peft",
+    "accelerate",
+    "clip",
+    "open-clip-torch",
+    "torch-scatter",
+    "boto3",
+    "nvdiffrast",
+]
+
+[tool.uv]
+package = false
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[[tool.uv.index]]
+name = "kaolin-cu124"
+url = "https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.5.0_cu124.html"
+format = "flat"
+explicit = true
+
+[[tool.uv.index]]
+name = "pyg-cu124"
+url = "https://data.pyg.org/whl/torch-2.5.0+cu124.html"
+format = "flat"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu124" }
+torchvision = { index = "pytorch-cu124" }
+xformers = { index = "pytorch-cu124" }
+kaolin = { index = "kaolin-cu124" }
+torch-scatter = { index = "pyg-cu124" }
+utils3d = { git = "https://github.com/EasternJournalist/utils3d.git", rev = "9a4eb15e4021b67b12c460c7057d642626897ec8" }
+clip = { git = "https://github.com/openai/CLIP.git" }
+nvdiffrast = { git = "https://github.com/NVlabs/nvdiffrast.git" }
