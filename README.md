@@ -1,3 +1,5 @@
+
+
 # Affostruction
 
 Official code and data for:
@@ -22,7 +24,7 @@ Official code and data for:
 
 ## Installation
 
-Requires Linux x86_64 + CUDA 12.4.
+Requires Python 3.10 + Linux x86_64 + CUDA 12.4.
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
