@@ -56,6 +56,8 @@ dependencies = [
     "torch-scatter",
     "boto3",
     "nvdiffrast",
+    "diff-gaussian-rasterization",
+    "pandas>=2.3.3",
 ]
 
 [tool.uv]
@@ -88,3 +90,4 @@ torch-scatter = { index = "pyg-cu124" }
 utils3d = { git = "https://github.com/EasternJournalist/utils3d.git", rev = "9a4eb15e4021b67b12c460c7057d642626897ec8" }
 clip = { git = "https://github.com/openai/CLIP.git" }
 nvdiffrast = { git = "https://github.com/NVlabs/nvdiffrast.git" }
+diff-gaussian-rasterization = { git = "https://github.com/autonomousvision/mip-splatting.git", subdirectory = "submodules/diff-gaussian-rasterization" }

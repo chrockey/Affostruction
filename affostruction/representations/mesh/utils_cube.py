@@ -42,7 +42,7 @@ def cubes_to_verts(num_verts, cubes, value, reduce="mean"):
     Operation:
         reduced[cubes[i][j]][k] += value[i][k]
     """
-    M = value.shape[2]  # number of channels
+    M = value.shape[2]
     reduced = torch.zeros(num_verts, M, device=cubes.device)
     return torch.scatter_reduce(
         reduced,
@@ -68,7 +68,7 @@ def get_dense_attrs(coords: torch.Tensor, feats: torch.Tensor, res: int, sdf_ini
     F = feats.shape[-1]
     dense_attrs = torch.zeros([res] * 3 + [F], device=feats.device)
     if sdf_init:
-        dense_attrs[..., 0] = 1  # initial outside sdf value
+        dense_attrs[..., 0] = 1
     dense_attrs[coords[:, 0], coords[:, 1], coords[:, 2], :] = feats
     return dense_attrs.reshape(-1, F)
 

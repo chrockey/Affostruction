@@ -59,7 +59,6 @@ class SparseConv3d(nn.Module):
         new_layout = None if spatial_changed else x.layout
 
         if spatial_changed and (x.shape[0] != 1):
-            # spconv was non-1 stride will break the contiguous of the output tensor, sort by the coords
             fwd = new_data.indices[:, 0].argsort()
             bwd = torch.zeros_like(fwd).scatter_(
                 0, fwd, torch.arange(fwd.shape[0], device=fwd.device)
@@ -67,7 +66,7 @@ class SparseConv3d(nn.Module):
             sorted_feats = new_data.features[fwd]
             sorted_coords = new_data.indices[fwd]
             unsorted_data = new_data
-            new_data = spconv.SparseConvTensor(sorted_feats, sorted_coords, unsorted_data.spatial_shape, unsorted_data.batch_size)  # type: ignore
+            new_data = spconv.SparseConvTensor(sorted_feats, sorted_coords, unsorted_data.spatial_shape, unsorted_data.batch_size)
 
         out = SparseTensor(
             new_data,
@@ -108,7 +107,6 @@ class SparseInverseConv3d(nn.Module):
     def forward(self, x: SparseTensor) -> SparseTensor:
         spatial_changed = any(s != 1 for s in self.stride)
         if spatial_changed:
-            # recover the original spconv order
             data = x.get_spatial_cache(f"conv_{self.stride}_unsorted_data")
             bwd = x.get_spatial_cache(f"conv_{self.stride}_sort_bwd")
             data = data.replace_feature(x.feats[bwd])

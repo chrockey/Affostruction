@@ -1,14 +1,3 @@
-#
-# Copyright (C) 2023, Inria
-# GRAPHDECO research group, https://team.inria.fr/graphdeco
-# All rights reserved.
-#
-# This software is free for non-commercial, research and evaluation use
-# under the terms of the LICENSE.md file.
-#
-# For inquiries contact  george.drettakis@inria.fr
-#
-
 import torch
 import math
 from easydict import EasyDict as edict
@@ -16,7 +5,6 @@ import numpy as np
 from ..representations.gaussian import Gaussian
 from .sh_utils import eval_sh
 import torch.nn.functional as F
-from easydict import EasyDict as edict
 
 
 def intrinsics_to_projection(
@@ -60,11 +48,9 @@ def render(
 
     Background tensor (bg_color) must be on GPU!
     """
-    # lazy import
     if "GaussianRasterizer" not in globals():
         from diff_gaussian_rasterization import GaussianRasterizer, GaussianRasterizationSettings
 
-    # Create zero tensor. We will use it to make pytorch return gradients of the 2D (screen-space) means
     screenspace_points = (
         torch.zeros_like(pc.get_xyz, dtype=pc.get_xyz.dtype, requires_grad=True, device="cuda") + 0
     )
@@ -72,7 +58,6 @@ def render(
         screenspace_points.retain_grad()
     except:
         pass
-    # Set up rasterization configuration
     tanfovx = math.tan(viewpoint_camera.FoVx * 0.5)
     tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
 
@@ -106,8 +91,6 @@ def render(
     means2D = screenspace_points
     opacity = pc.get_opacity
 
-    # If precomputed 3d covariance is provided, use it. If not, then it will be computed from
-    # scaling / rotation by the rasterizer.
     scales = None
     rotations = None
     cov3D_precomp = None
@@ -117,8 +100,6 @@ def render(
         scales = pc.get_scaling
         rotations = pc.get_rotation
 
-    # If precomputed colors are provided, use them. Otherwise, if it is desired to precompute colors
-    # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
     shs = None
     colors_precomp = None
     if override_color is None:
@@ -135,7 +116,6 @@ def render(
     else:
         colors_precomp = override_color
 
-    # Rasterize visible Gaussians to image, obtain their radii (on screen).
     rendered_image, radii = rasterizer(
         means3D=means3D,
         means2D=means2D,
@@ -147,8 +127,6 @@ def render(
         cov3D_precomp=cov3D_precomp,
     )
 
-    # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
-    # They will be excluded from value updates used in the splitting criteria.
     return edict(
         {
             "render": rendered_image,
@@ -246,7 +224,6 @@ class GaussianRenderer:
             }
         )
 
-        # Render
         render_ret = render(
             camera_dict,
             gausssian,

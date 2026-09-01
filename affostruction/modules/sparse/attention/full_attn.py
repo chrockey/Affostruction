@@ -102,7 +102,6 @@ def sparse_scaled_dot_product_attention(
 
 
 def sparse_scaled_dot_product_attention(*args, **kwargs):
-    # Extract attn_mask if present
     attn_mask = kwargs.pop("attn_mask", None)
 
     arg_names_dict = {1: ["qkv"], 2: ["q", "kv"], 3: ["q", "k", "v"]}
@@ -124,7 +123,7 @@ def sparse_scaled_dot_product_attention(*args, **kwargs):
         s = qkv
         q_seqlen = [qkv.layout[i].stop - qkv.layout[i].start for i in range(qkv.shape[0])]
         kv_seqlen = q_seqlen
-        qkv = qkv.feats  # [T, 3, H, C]
+        qkv = qkv.feats
 
     elif num_all_args == 2:
         q = args[0] if len(args) > 0 else kwargs["q"]
@@ -144,27 +143,27 @@ def sparse_scaled_dot_product_attention(*args, **kwargs):
             assert len(q.shape) == 3, f"Invalid shape for q, got {q.shape}, expected [N, *, H, C]"
             s = q
             q_seqlen = [q.layout[i].stop - q.layout[i].start for i in range(q.shape[0])]
-            q = q.feats  # [T_Q, H, C]
+            q = q.feats
         else:
             assert len(q.shape) == 4, f"Invalid shape for q, got {q.shape}, expected [N, L, H, C]"
             s = None
             N, L, H, C = q.shape
             q_seqlen = [L] * N
-            q = q.reshape(N * L, H, C)  # [T_Q, H, C]
+            q = q.reshape(N * L, H, C)
 
         if isinstance(kv, SparseTensor):
             assert (
                 len(kv.shape) == 4 and kv.shape[1] == 2
             ), f"Invalid shape for kv, got {kv.shape}, expected [N, *, 2, H, C]"
             kv_seqlen = [kv.layout[i].stop - kv.layout[i].start for i in range(kv.shape[0])]
-            kv = kv.feats  # [T_KV, 2, H, C]
+            kv = kv.feats
         else:
             assert (
                 len(kv.shape) == 5
             ), f"Invalid shape for kv, got {kv.shape}, expected [N, L, 2, H, C]"
             N, L, _, H, C = kv.shape
             kv_seqlen = [L] * N
-            kv = kv.reshape(N * L, 2, H, C)  # [T_KV, 2, H, C]
+            kv = kv.reshape(N * L, 2, H, C)
 
     elif num_all_args == 3:
         q = args[0] if len(args) > 0 else kwargs["q"]
@@ -187,27 +186,27 @@ def sparse_scaled_dot_product_attention(*args, **kwargs):
             assert len(q.shape) == 3, f"Invalid shape for q, got {q.shape}, expected [N, *, H, Ci]"
             s = q
             q_seqlen = [q.layout[i].stop - q.layout[i].start for i in range(q.shape[0])]
-            q = q.feats  # [T_Q, H, Ci]
+            q = q.feats
         else:
             assert len(q.shape) == 4, f"Invalid shape for q, got {q.shape}, expected [N, L, H, Ci]"
             s = None
             N, L, H, CI = q.shape
             q_seqlen = [L] * N
-            q = q.reshape(N * L, H, CI)  # [T_Q, H, Ci]
+            q = q.reshape(N * L, H, CI)
 
         if isinstance(k, SparseTensor):
             assert len(k.shape) == 3, f"Invalid shape for k, got {k.shape}, expected [N, *, H, Ci]"
             assert len(v.shape) == 3, f"Invalid shape for v, got {v.shape}, expected [N, *, H, Co]"
             kv_seqlen = [k.layout[i].stop - k.layout[i].start for i in range(k.shape[0])]
-            k = k.feats  # [T_KV, H, Ci]
-            v = v.feats  # [T_KV, H, Co]
+            k = k.feats
+            v = v.feats
         else:
             assert len(k.shape) == 4, f"Invalid shape for k, got {k.shape}, expected [N, L, H, Ci]"
             assert len(v.shape) == 4, f"Invalid shape for v, got {v.shape}, expected [N, L, H, Co]"
             N, L, H, CI, CO = *k.shape, v.shape[-1]
             kv_seqlen = [L] * N
-            k = k.reshape(N * L, H, CI)  # [T_KV, H, Ci]
-            v = v.reshape(N * L, H, CO)  # [T_KV, H, Co]
+            k = k.reshape(N * L, H, CI)
+            v = v.reshape(N * L, H, CO)
 
     if DEBUG:
         if s is not None:
@@ -230,36 +229,26 @@ def sparse_scaled_dot_product_attention(*args, **kwargs):
                 sum(kv_seqlen),
             ], f"SparseScaledDotProductSelfAttention: v shape mismatch"
 
-    # Apply mask-based filtering for cross-attention with padding
-    # attn_mask: [B, L_kv] boolean mask (True = valid, False = padding)
     if attn_mask is not None and num_all_args in [2, 3]:
-        # Check if any sample has padding
         if not attn_mask.all():
             batch_size = len(kv_seqlen)
 
-            # Create batch indices tensor: which batch each token belongs to
-            # E.g., kv_seqlen=[3, 2, 4] -> batch_indices=[0,0,0, 1,1, 2,2,2,2]
             batch_indices = torch.repeat_interleave(
                 torch.arange(batch_size, device=device), torch.tensor(kv_seqlen, device=device)
-            )  # [sum(kv_seqlen)]
+            )
 
-            # Create position indices within each batch
-            # E.g., kv_seqlen=[3, 2, 4] -> pos_indices=[0,1,2, 0,1, 0,1,2,3]
             pos_indices = torch.cat(
                 [torch.arange(length, device=device) for length in kv_seqlen]
-            )  # [sum(kv_seqlen)]
+            )
 
-            # Index into attn_mask using advanced indexing to get flat mask
-            flat_mask = attn_mask[batch_indices, pos_indices]  # [sum(kv_seqlen)]
+            flat_mask = attn_mask[batch_indices, pos_indices]
 
-            # Apply mask to filter out padding tokens (vectorized)
             if num_all_args == 2:
-                kv = kv[flat_mask]  # [num_valid, 2, H, C]
+                kv = kv[flat_mask]
             elif num_all_args == 3:
-                k = k[flat_mask]  # [num_valid, H, C]
-                v = v[flat_mask]  # [num_valid, H, C]
+                k = k[flat_mask]
+                v = v[flat_mask]
 
-            # Recompute kv_seqlen for each batch using bincount (GPU-accelerated)
             valid_batch_indices = batch_indices[flat_mask]
             new_kv_seqlen = torch.bincount(valid_batch_indices, minlength=batch_size).tolist()
             kv_seqlen = new_kv_seqlen

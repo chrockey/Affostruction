@@ -28,9 +28,6 @@ from PIL import Image
 from affostruction import AffostructionPipeline
 
 
-# Real queries from the test split of the Affogato affordance dataset for
-# the bundled sample objects. Keyed by sample directory basename. The first
-# entry is used as the default query when ``--query`` is not passed.
 SAMPLE_QUERIES = {
     "sample1": [
         "Point to the part you would sit on.",
@@ -108,7 +105,6 @@ def _probs_to_rgb(probs: np.ndarray, colormap: bool = False) -> np.ndarray:
 def save_voxel_ply(path: str, coords: np.ndarray, probs: np.ndarray, resolution: int):
     """Write a colored .ply point cloud at voxel centers (cube space [-0.5, 0.5])."""
     centers = (coords.astype(np.float32) + 0.5) / float(resolution) - 0.5
-    # Use viridis on the point cloud where colour helps separate magnitudes.
     colors = _probs_to_rgb(probs, colormap=True)
     n = centers.shape[0]
     header = (
@@ -132,7 +128,7 @@ def main(
     output_dir: str = "example_results",
     seed: int = 1,
     steps: int = 50,
-    cfg_strength: float = 3.0,
+    cfg_strength: float = 1.0,
     noise_scale: float = None,
     view_selection: str = "voxel",
     view_selection_transforms: str = None,
@@ -150,10 +146,10 @@ def main(
         seed: Random seed
         steps: Affordance flow Euler steps
         cfg_strength: Classifier-free guidance strength
-        noise_scale: Override the training-time logit-space noise scale (5.0)
+        noise_scale: Initial-noise scale
         view_selection: rendering method for the active-view stage.
             ``"voxel"`` (default) = per-pixel raycast, decoder-free.
-            ``"mesh"`` = paper version (SLAT mesh decode + nvdiffrast).
+            ``"mesh"`` = SLAT mesh decode + nvdiffrast.
             ``None`` skips the stage.
         view_selection_transforms: path to a dataset ``transforms.json``
             listing the candidate poses. Defaults to

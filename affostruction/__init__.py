@@ -13,7 +13,7 @@ Example:
     >>> probs = outputs["affordance"][0]["probs"]   # (N,) per-voxel heatmap
 """
 
-from .affostruction import AffostructionPipeline
+from .pipelines.affostruction import AffostructionPipeline
 from .pipelines.affordance import AffordancePipeline
 from .pipelines.reconstruction import ReconstructionPipeline
 from .pipelines.view_selection import ViewSelectionPipeline

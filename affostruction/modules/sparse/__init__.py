@@ -1,6 +1,6 @@
 from typing import *
 
-BACKEND = "spconv"  # Only spconv is supported
+BACKEND = "spconv"
 DEBUG = False
 ATTN = "flash_attn"
 
@@ -18,8 +18,17 @@ def __from_env():
 
     if env_sparse_debug is not None:
         DEBUG = env_sparse_debug == "1"
+    if env_sparse_attn is not None:
+        env_sparse_attn = env_sparse_attn.replace("-", "_")
     if env_sparse_attn is not None and env_sparse_attn in ["xformers", "flash_attn"]:
         ATTN = env_sparse_attn
+
+    if ATTN == "flash_attn":
+        import importlib.util
+
+        if importlib.util.find_spec("flash_attn") is None:
+            print("[SPARSE] flash_attn not installed; falling back to xformers attention")
+            ATTN = "xformers"
 
 
 __from_env()
@@ -83,7 +92,6 @@ def __getattr__(name):
     return globals()[name]
 
 
-# For Pylance
 if __name__ == "__main__":
     from .basic import *
     from .norm import *

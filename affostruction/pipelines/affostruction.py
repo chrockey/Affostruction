@@ -11,9 +11,9 @@ from typing import List, Optional
 
 import torch
 
-from .pipelines.affordance import AffordancePipeline, HF_DEFAULT_REPO
-from .pipelines.reconstruction import ReconstructionPipeline
-from .pipelines.view_selection import ViewSelectionPipeline
+from .affordance import AffordancePipeline, HF_DEFAULT_REPO
+from .reconstruction import ReconstructionPipeline
+from .view_selection import ViewSelectionPipeline
 
 
 class AffostructionPipeline:
@@ -58,7 +58,7 @@ class AffostructionPipeline:
                 kernels). Disable to skip the auxiliary instantiation.
             affordance_source: Optional override for the affordance checkpoint.
                 Accepts either an HF repo id or a local training output dir
-                (e.g. ``outputs/heatmap_flow-focal_txt_dit_B_64l8p2_fp16_1m``).
+                (e.g. ``outputs/stage2_affordance``).
                 Defaults to ``repo_id`` (the ``affordance/`` subfolder there).
         """
         reconstruction_pipeline = ReconstructionPipeline.from_pretrained(repo_id)
@@ -101,10 +101,6 @@ class AffostructionPipeline:
         formats: Optional[list] = None,
         return_intermediates: bool = False,
     ) -> dict:
-        # ``formats`` is opt-in. Default skips mesh/gaussian decoding so that
-        # the common path (affordance heatmap, voxel inspection) does not pay
-        # for kaolin/nvdiffrast. Pass ``formats=["mesh", "gaussian"]`` (or a
-        # subset) when you need renderable outputs.
         return self.reconstruction_pipeline.run(
             input_dict,
             seed=seed,
@@ -143,7 +139,7 @@ class AffostructionPipeline:
     ) -> dict:
         """Pick the best next-view via affordance visibility.
 
-        ``mode='mesh'`` matches the paper: decode the mesh, paint vertex
+        ``mode='mesh'``: decode the mesh, paint vertex
         colors with the affordance heatmap, render K hemisphere views, score
         by Σ pixel intensities. ``mode='voxel'`` skips mesh decoding and
         rasterizes voxel centers directly (faster, no nvdiffrast).
@@ -186,7 +182,7 @@ class AffostructionPipeline:
             view_selection_mode: rendering backend for the active-view
                 stage. ``"voxel"`` (default) = per-pixel raycast through
                 the dense occupancy/probability volume, decoder-free.
-                ``"mesh"`` (opt-in) = paper version: SLAT mesh decode +
+                ``"mesh"`` (opt-in): SLAT mesh decode +
                 nvdiffrast rasterization (``formats`` must include
                 ``"mesh"``). ``None`` skips view selection entirely.
             view_selection_transforms_path: path to a dataset

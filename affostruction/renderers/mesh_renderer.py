@@ -77,15 +77,12 @@ class MeshRenderer:
         far = self.rendering_options["far"]
         ssaa = self.rendering_options["ssaa"]
 
-        # Handle batch dimensions
         if extrinsics.dim() == 2:
-            # Single view: [4, 4] -> [1, 4, 4]
             extrinsics = extrinsics.unsqueeze(0)
             intrinsics = intrinsics.unsqueeze(0)
             batch_size = 1
             squeeze_output = True
         else:
-            # Batch views: [B, 4, 4]
             batch_size = extrinsics.shape[0]
             squeeze_output = False
 
@@ -106,7 +103,6 @@ class MeshRenderer:
                 }
             return ret_dict
 
-        # Compute perspectives for each batch
         perspectives = torch.stack(
             [intrinsics_to_projection(intr, near, far) for intr in intrinsics]
         )
@@ -114,7 +110,6 @@ class MeshRenderer:
         RT = extrinsics
         full_proj = torch.bmm(perspectives, extrinsics)
 
-        # Expand vertices for batch
         vertices = mesh.vertices.unsqueeze(0).expand(batch_size, -1, -1)
 
         vertices_homo = torch.cat([vertices, torch.ones_like(vertices[..., :1])], dim=-1)
@@ -134,8 +129,6 @@ class MeshRenderer:
                 img = dr.interpolate(vertices_camera[..., 2:3].contiguous(), rast, faces_int)[0]
                 img = dr.antialias(img, rast, vertices_clip, faces_int)
             elif type == "normal":
-                # Expand face_normal for batch
-                # face_normal shape: [N_faces, 3, 3] -> reshape to [batch_size, N_faces*3, 3]
                 face_normal_batch = mesh.face_normal.reshape(1, -1, 3).expand(batch_size, -1, -1)
                 img = dr.interpolate(
                     face_normal_batch,
@@ -145,17 +138,14 @@ class MeshRenderer:
                     ).reshape(-1, 3),
                 )[0]
                 img = dr.antialias(img, rast, vertices_clip, faces_int)
-                # normalize norm pictures
                 img = (img + 1) / 2
             elif type == "normal_map":
-                # Expand vertex_attrs for batch
                 vertex_attrs_batch = (
                     mesh.vertex_attrs[:, 3:].unsqueeze(0).expand(batch_size, -1, -1)
                 )
                 img = dr.interpolate(vertex_attrs_batch.contiguous(), rast, faces_int)[0]
                 img = dr.antialias(img, rast, vertices_clip, faces_int)
             elif type == "color":
-                # Expand vertex_attrs for batch
                 vertex_attrs_batch = (
                     mesh.vertex_attrs[:, :3].unsqueeze(0).expand(batch_size, -1, -1)
                 )
@@ -178,10 +168,8 @@ class MeshRenderer:
                 if squeeze_output:
                     img = img.permute(0, 3, 1, 2).squeeze(0)
                 else:
-                    # Keep batch dimension: [B, H, W, C] -> [B, H, W] or [B, H, W, C]
                     if img.shape[-1] == 1:
-                        img = img.squeeze(-1)  # [B, H, W]
-                    # else keep [B, H, W, 3]
+                        img = img.squeeze(-1)
             out_dict[type] = img
 
         return out_dict

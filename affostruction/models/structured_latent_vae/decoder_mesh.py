@@ -1,7 +1,5 @@
 from typing import *
-import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
 from ...modules.utils import zero_module, convert_module_to_f16, convert_module_to_f32
 from ...modules import sparse as sp
@@ -141,7 +139,6 @@ class SLatMeshDecoder(SparseTransformerBase):
 
     def initialize_weights(self) -> None:
         super().initialize_weights()
-        # Zero-out output layers:
         nn.init.constant_(self.out_layer.weight, 0)
         nn.init.constant_(self.out_layer.bias, 0)
 

@@ -168,4 +168,3 @@ class ModulatedTransformerCrossBlock(nn.Module):
             )
         else:
             return self._forward(x, mod, context, context_mask)
-        

@@ -39,16 +39,3 @@ def zero_module(module):
     for p in module.parameters():
         p.detach().zero_()
     return module
-
-
-def scale_module(module, scale):
-    """
-    Scale the parameters of a module and return it.
-    """
-    for p in module.parameters():
-        p.detach().mul_(scale)
-    return module
-
-
-def modulate(x, shift, scale):
-    return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)

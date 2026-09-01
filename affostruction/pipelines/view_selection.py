@@ -1,12 +1,11 @@
-"""Affordance-driven active view selection (Sec. 3.4 of the paper).
+"""Affordance-driven active view selection.
 
 Given a reconstruction's sparse voxels + a per-voxel affordance heatmap and
 a dataset-style ``transforms.json`` listing the K candidate camera poses,
 score each pose by ``S(π) = Σ pixel intensities`` of the rendered heatmap
 and return the highest-scoring pose.
 
-Coordinate conventions (mirrors ``examples/active_holistic_affordance.py``
-on the ``main`` branch):
+Coordinate conventions:
 
 - World frame is Blender/NeRF: +Z up, +Y forward, +X right. The
   reconstruction lives in this frame after ``_depth_to_voxel_coords``
@@ -20,7 +19,7 @@ on the ``main`` branch):
 
 Two backends:
 
-- ``mesh`` (paper version): decode the SLAT latent into a mesh, paint
+- ``mesh``: decode the SLAT latent into a mesh, paint
   per-vertex affordance probability (looked up from the dense voxel
   grid), then rasterize per candidate pose using the nvdiffrast
   ``MeshRenderer``. Requires ``nvdiffrast``.
@@ -106,10 +105,6 @@ class ViewSelectionPipeline:
 
     def __init__(self, resolution: int = DEFAULT_RESOLUTION):
         self.resolution = resolution
-        # Lazily cached nvdiffrast MeshRenderer. Built once and reused
-        # across mesh-mode calls so the dr.RasterizeCudaContext (and the
-        # CUDA setup it triggers) isn't paid per render. Keyed by
-        # (resolution,) so changing self.resolution rebuilds the cache.
         self._mesh_renderer = None
         self._mesh_renderer_key = None
 
@@ -128,7 +123,6 @@ class ViewSelectionPipeline:
         """
         return load_poses_from_transforms(transforms_path)
 
-    # ------------------------------------------------------------------ mesh
 
     @torch.no_grad()
     def score_mesh(
@@ -140,12 +134,11 @@ class ViewSelectionPipeline:
         *,
         transforms_path: str,
     ) -> torch.Tensor:
-        """Paper version. Paint the mesh with the affordance heatmap,
+        """Paint the mesh with the affordance heatmap,
         rasterize per candidate pose via nvdiffrast, return ``(K,)``
         Σ-pixel-intensity scores.
         """
-        # Imported here so voxel-mode callers don't pay the nvdiffrast import.
-        from ..utils.render_utils import get_renderer  # noqa: E402
+        from ..utils.render import get_renderer  # noqa: E402
 
         extr_list, intr_list = self.candidate_extrinsics_intrinsics(transforms_path)
         K = len(extr_list)
@@ -172,19 +165,14 @@ class ViewSelectionPipeline:
             self._mesh_renderer_key = (self.resolution,)
         renderer = self._mesh_renderer
 
-        # MeshRenderer supports batched extrinsics/intrinsics; nvdiffrast
-        # rasterizes all candidate views in a single CUDA call.
         extr_batch = torch.stack([e.to(mesh.vertices.device) for e in extr_list])
         intr_batch = torch.stack([k.to(mesh.vertices.device) for k in intr_list])
         res = renderer.render(mesh, extr_batch, intr_batch, return_types=["color"])
         color = res["color"]
-        # Batched output shape is (B, H, W, 3) per the MeshRenderer impl.
         if color.dim() == 4 and color.shape[-1] == 3:
             return color[..., 0].flatten(1).sum(dim=1).cpu()
-        # Fallback for unexpected layouts.
         return color.reshape(K, -1).sum(dim=1).cpu()
 
-    # ----------------------------------------------------------------- voxel
 
     @torch.no_grad()
     def score_voxels(
@@ -216,14 +204,8 @@ class ViewSelectionPipeline:
         extr_list, intr_list = self.candidate_extrinsics_intrinsics(transforms_path)
         K = len(extr_list)
         R = int(voxel_resolution)
-        # Render at the voxel-grid resolution so each pixel covers roughly
-        # one projected voxel. There is no surface information beyond the
-        # sparse-structure decoder's voxel grid, so a higher render
-        # resolution would just smear each voxel across multiple pixels
-        # without adding detail.
         H = W = R
 
-        # Build dense affordance + occupancy volumes (R, R, R).
         dense_p = torch.zeros(R, R, R, device=device, dtype=probs.dtype)
         cx_v = coords[:, 1].long().to(device).clamp(0, R - 1)
         cy_v = coords[:, 2].long().to(device).clamp(0, R - 1)
@@ -232,7 +214,6 @@ class ViewSelectionPipeline:
         occ = torch.zeros(R, R, R, device=device)
         occ[cx_v, cy_v, cz_v] = 1.0
 
-        # Pixel grid (center of each pixel, normalized [0, 1] coords).
         yy, xx = torch.meshgrid(
             torch.arange(H, device=device).float(),
             torch.arange(W, device=device).float(),
@@ -241,35 +222,26 @@ class ViewSelectionPipeline:
         u_norm = (xx + 0.5) / W
         v_norm = (yy + 0.5) / H
 
-        # Number of depth samples so that step ≤ 1 / (R * samples_per_voxel)
-        # in world units across the [near, far] range. Without this, the
-        # ray skips alternate voxel slices and produces speckled hollows
-        # where occupied voxels live between adjacent samples.
         depth_span = max(ray_far - ray_near, 1e-3)
         T = int(np.ceil(depth_span * R * ray_samples_per_voxel)) + 1
         t_vals = torch.linspace(ray_near, ray_far, T, device=device)
 
-        # Batched across all K candidate views. Stack extrinsics/intrinsics
-        # so all rays for all views are sampled in one fused tensor pass.
-        extr_batch = torch.stack([e.to(device).float() for e in extr_list])  # (K,4,4)
-        intr_batch = torch.stack([k.to(device).float() for k in intr_list])  # (K,3,3)
+        extr_batch = torch.stack([e.to(device).float() for e in extr_list])
+        intr_batch = torch.stack([k.to(device).float() for k in intr_list])
         fx = intr_batch[:, 0, 0].view(K, 1, 1)
         fy = intr_batch[:, 1, 1].view(K, 1, 1)
         cxn = intr_batch[:, 0, 2].view(K, 1, 1)
         cyn = intr_batch[:, 1, 2].view(K, 1, 1)
-        # Ray direction in camera frame (OpenCV: +z forward). (K, H, W, 3)
         d_cam_x = (u_norm.unsqueeze(0) - cxn) / fx
         d_cam_y = (v_norm.unsqueeze(0) - cyn) / fy
         d_cam_z = torch.ones_like(d_cam_x)
         d_cam = torch.stack([d_cam_x, d_cam_y, d_cam_z], dim=-1)
         d_cam = d_cam / d_cam.norm(dim=-1, keepdim=True)
-        # Camera->world rotation = R_w2c^T. d_world = R_w2c^T @ d_cam.
         R_w2c = extr_batch[:, :3, :3]
         t_w2c = extr_batch[:, :3, 3]
         cam_center = -torch.bmm(R_w2c.transpose(1, 2), t_w2c.unsqueeze(-1)).squeeze(-1)
         d_world = torch.einsum("kij,khwj->khwi", R_w2c.transpose(1, 2), d_cam)
 
-        # Sample world points along each ray: (K, H, W, T, 3).
         pts = cam_center.view(K, 1, 1, 1, 3) + t_vals.view(1, 1, 1, T, 1) * d_world.unsqueeze(3)
         idx_f = (pts + 0.5) * R
         inb = (idx_f >= 0).all(dim=-1) & (idx_f < R).all(dim=-1)
@@ -280,7 +252,6 @@ class ViewSelectionPipeline:
         first_hit = (occ_samples > 0) & (cumsum == 1)
         return (p_samples * first_hit.float()).reshape(K, -1).sum(dim=1).cpu()
 
-    # --------------------------------------------------------------- run
 
     @torch.no_grad()
     def run(
@@ -301,7 +272,7 @@ class ViewSelectionPipeline:
             voxel_resolution: voxel grid resolution.
             transforms_path: dataset ``transforms.json`` listing the K
                 candidate poses (Blender c2w). Required.
-            mode: ``"mesh"`` (paper, needs nvdiffrast + a decoded mesh) or
+            mode: ``"mesh"`` (needs nvdiffrast + a decoded mesh) or
                 ``"voxel"`` (skip mesh decoding).
             mesh: ``MeshExtractResult`` from the SLAT mesh decoder. Required
                 when ``mode == "mesh"``.
@@ -325,7 +296,6 @@ class ViewSelectionPipeline:
         extr_list, intr_list = self.candidate_extrinsics_intrinsics(transforms_path)
         idx = int(scores.argmax().item())
         chosen_extr = extr_list[idx]
-        # Recover camera origin in world frame from w2c: cam_origin = -R^T @ t.
         R = chosen_extr[:3, :3]
         t = chosen_extr[:3, 3]
         origin_world = (-R.T @ t).detach().cpu().numpy()

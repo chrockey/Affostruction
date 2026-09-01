@@ -104,13 +104,11 @@ class SparseSubdivide(nn.Module):
 
     def forward(self, input: SparseTensor) -> SparseTensor:
         DIM = input.coords.shape[-1] - 1
-        # upsample scale=2^DIM
         n_cube = torch.ones([2] * DIM, device=input.device, dtype=torch.int)
         n_coords = torch.nonzero(n_cube)
         n_coords = torch.cat([torch.zeros_like(n_coords[:, :1]), n_coords], dim=-1)
         factor = n_coords.shape[0]
         assert factor == 2**DIM
-        # print(n_coords.shape)
         new_coords = input.coords.clone()
         new_coords[:, 1:] *= 2
         new_coords = new_coords.unsqueeze(1) + n_coords.unsqueeze(0).to(new_coords.dtype)

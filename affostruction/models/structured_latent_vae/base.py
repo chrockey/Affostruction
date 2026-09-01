@@ -110,7 +110,6 @@ class SparseTransformerBase(nn.Module):
         self.blocks.apply(convert_module_to_f32)
 
     def initialize_weights(self) -> None:
-        # Initialize transformer layers:
         def _basic_init(module):
             if isinstance(module, nn.Linear):
                 torch.nn.init.xavier_uniform_(module.weight)

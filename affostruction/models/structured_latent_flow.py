@@ -9,6 +9,7 @@ from ..modules.norm import LayerNorm32
 from ..modules import sparse as sp
 from ..modules.sparse.transformer import ModulatedSparseTransformerCrossBlock
 from .sparse_structure_flow import TimestepEmbedder
+from .sparse_elastic_mixin import SparseTransformerElasticMixin
 
 
 class SparseResBlock3d(nn.Module):
@@ -231,7 +232,6 @@ class SLatFlowModel(nn.Module):
         self.out_blocks.apply(convert_module_to_f32)
 
     def initialize_weights(self) -> None:
-        # Initialize transformer layers:
         def _basic_init(module):
             if isinstance(module, nn.Linear):
                 torch.nn.init.xavier_uniform_(module.weight)
@@ -240,11 +240,9 @@ class SLatFlowModel(nn.Module):
 
         self.apply(_basic_init)
 
-        # Initialize timestep embedding MLP:
         nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02)
         nn.init.normal_(self.t_embedder.mlp[2].weight, std=0.02)
 
-        # Zero-out adaLN modulation layers in DiT blocks:
         if self.share_mod:
             nn.init.constant_(self.adaLN_modulation[-1].weight, 0)
             nn.init.constant_(self.adaLN_modulation[-1].bias, 0)
@@ -253,7 +251,6 @@ class SLatFlowModel(nn.Module):
                 nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
                 nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
 
-        # Zero-out output layers:
         nn.init.constant_(self.out_layer.weight, 0)
         nn.init.constant_(self.out_layer.bias, 0)
 
@@ -272,7 +269,6 @@ class SLatFlowModel(nn.Module):
         cond = cond.type(self.dtype)
 
         skips = []
-        # pack with input blocks
         for block in self.input_blocks:
             h = block(h, t_emb)
             skips.append(h.feats)
@@ -282,7 +278,6 @@ class SLatFlowModel(nn.Module):
         for block in self.blocks:
             h = block(h, t_emb, cond, cond_mask)
 
-        # unpack with output blocks
         for block, skip in zip(self.out_blocks, reversed(skips)):
             if self.use_skip_connection:
                 h = block(h.replace(torch.cat([h.feats, skip], dim=1)), t_emb)
@@ -294,10 +289,11 @@ class SLatFlowModel(nn.Module):
         return h
 
 
-class ElasticSLatFlowModel(SLatFlowModel):
-    """SLAT flow model alias retained so checkpoints saved under the
-    training-time class name (``ElasticSLatFlowModel``) load directly. The
-    training-time elastic-memory mixin is a no-op at inference, so we drop it
-    in the release package to avoid pulling in the training utils."""
+class ElasticSLatFlowModel(SparseTransformerElasticMixin, SLatFlowModel):
+    """
+    SLat Flow Model with elastic memory management.
+    Used for training with low VRAM; the mixin adds no parameters and is a
+    no-op at inference, so checkpoints load identically either way.
+    """
 
     pass

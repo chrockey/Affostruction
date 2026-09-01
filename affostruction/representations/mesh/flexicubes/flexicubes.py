@@ -1,17 +1,3 @@
-# Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import torch
 from .tables import *
 from kaolin.utils.testing import check_tensor
@@ -216,11 +202,8 @@ class FlexiCubes:
         if not isinstance(res, (list, tuple)):
             res = [res, res, res]
 
-        # The 'problematic_configs' only contain configurations for surface cubes. Next, we construct a 3D array,
-        # 'problem_config_full', to store configurations for all cubes (with default config for non-surface cubes).
-        # This allows efficient checking on adjacent cubes.
         problem_config_full = torch.zeros(list(res) + [5], device=self.device, dtype=torch.long)
-        vol_idx = torch.nonzero(problem_config_full[..., 0] == 0)  # N, 3
+        vol_idx = torch.nonzero(problem_config_full[..., 0] == 0)
         vol_idx_problem = vol_idx[surf_cubes][to_check]
         problem_config_full[
             vol_idx_problem[..., 0], vol_idx_problem[..., 1], vol_idx_problem[..., 2]
@@ -242,7 +225,6 @@ class FlexiCubes:
         problem_config_adj = problem_config_full[
             vol_idx_problem_adj[..., 0], vol_idx_problem_adj[..., 1], vol_idx_problem_adj[..., 2]
         ]
-        # If two cubes with cases C16 and C19 share an ambiguous face, both cases are inverted.
         to_invert = problem_config_adj[..., 0] == 1
         idx = torch.arange(case_ids.shape[0], device=self.device)[to_check][within_range][
             to_invert
@@ -273,8 +255,6 @@ class FlexiCubes:
             torch.ones((unique_edges.shape[0]), dtype=torch.long, device=cube_idx.device) * -1
         )
         mapping[mask_edges] = torch.arange(mask_edges.sum(), device=cube_idx.device)
-        # Shaped as [number of cubes x 12 edges per cube]. This is later used to map a cube edge to the unique index
-        # for a surface-intersecting edge. Non-surface-intersecting edges are marked with -1.
         idx_map = mapping[_idx_map]
         surf_edges = unique_edges[mask_edges]
         return surf_edges, idx_map, counts, surf_edges_mask
@@ -374,8 +354,6 @@ class FlexiCubes:
             [],
         )
 
-        # if color is not None:
-        #     vd_color = []
 
         total_num_vd = 0
         vd_idx_map = torch.zeros(
@@ -385,7 +363,7 @@ class FlexiCubes:
         for num in torch.unique(num_vd):
             cur_cubes = (
                 num_vd == num
-            )  # consider cubes with the same numbers of vd emitted (for batching)
+            )
             curr_num_vd = cur_cubes.sum() * num
             curr_edge_group = self.dmc_table[case_ids[cur_cubes], :num].reshape(-1, num * 7)
             curr_edge_group_to_vd = (
@@ -410,18 +388,12 @@ class FlexiCubes:
             vd_gamma.append(
                 torch.masked_select(gamma_f, cur_cubes).unsqueeze(-1).repeat(1, num).reshape(-1)
             )
-            # if color is not None:
-            #     vd_color.append(color[cur_cubes].unsqueeze(1).repeat(1, num, 1).reshape(-1, 3))
 
         edge_group = torch.cat(edge_group)
         edge_group_to_vd = torch.cat(edge_group_to_vd)
         edge_group_to_cube = torch.cat(edge_group_to_cube)
         vd_num_edges = torch.cat(vd_num_edges)
         vd_gamma = torch.cat(vd_gamma)
-        # if color is not None:
-        #     vd_color = torch.cat(vd_color)
-        # else:
-        #     vd_color = None
 
         vd = torch.zeros((total_num_vd, 3), device=self.device)
         beta_sum = torch.zeros((total_num_vd, 1), device=self.device)
@@ -470,7 +442,7 @@ class FlexiCubes:
 
         L_dev = self._compute_reg_loss(vd, zero_crossing_group, edge_group_to_vd, vd_num_edges)
 
-        v_idx = torch.arange(vd.shape[0], device=self.device)  # + total_num_vd
+        v_idx = torch.arange(vd.shape[0], device=self.device)
 
         vd_idx_map = (vd_idx_map.reshape(-1)).scatter(
             dim=0, index=edge_group_to_cube * 12 + edge_group, src=v_idx[edge_group_to_vd]
@@ -496,13 +468,12 @@ class FlexiCubes:
         triangles based on the gamma parameter, as described in Section 4.3.
         """
         with torch.no_grad():
-            group_mask = (edge_counts == 4) & surf_edges_mask  # surface edges shared by 4 cubes.
+            group_mask = (edge_counts == 4) & surf_edges_mask
             group = idx_map.reshape(-1)[group_mask]
             vd_idx = vd_idx_map[group_mask]
             edge_indices, indices = torch.sort(group, stable=True)
             quad_vd_idx = vd_idx[indices].reshape(-1, 4)
 
-            # Ensure all face directions point towards the positive SDF to maintain consistent winding.
             s_edges = scalar_field[
                 surf_edges[edge_indices.reshape(-1, 4)[:, 0]].reshape(-1)
             ].reshape(-1, 2)

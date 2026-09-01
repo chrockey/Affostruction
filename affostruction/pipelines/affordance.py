@@ -10,7 +10,7 @@ for each input coord.
 import glob
 import json
 import os
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -26,7 +26,7 @@ HF_DEFAULT_REPO = "chrockey/Affostruction"
 HF_AFFO_SUBFOLDER = "affordance"
 
 
-def _resolve_affo_artifacts_hf(repo_id: str) -> Tuple[str, str]:
+def _resolve_hf_artifacts(repo_id: str) -> Tuple[str, str]:
     """Fetch (config.json, model.safetensors) from the affordance subfolder."""
     print(f"Downloading affordance checkpoint from HF: {repo_id}/{HF_AFFO_SUBFOLDER}")
     config_path = hf_hub_download(
@@ -38,15 +38,9 @@ def _resolve_affo_artifacts_hf(repo_id: str) -> Tuple[str, str]:
     return config_path, ckpt_path
 
 
-def _resolve_affo_artifacts_local(src_dir: str) -> Tuple[str, str]:
-    """Resolve config + latest denoiser_ema .pt from a training output dir.
-
-    Dev-only path. The HF download in ``_resolve_affo_artifacts_hf`` is the
-    default for end-users. This branch lets you point at a fresh training
-    output dir (e.g. ``outputs/heatmap_flow-focal_txt_dit_B_64l8p2_fp16_1m``)
-    before re-running ``scripts/upload_to_hf.py``. Picks the latest
-    ``ckpts/denoiser_ema*.pt`` by filename sort (matches the upload script).
-    """
+def _resolve_local_artifacts(src_dir: str) -> Tuple[str, str]:
+    """Resolve config + latest ``ckpts/denoiser_ema*.pt`` from a training
+    output dir (e.g. ``outputs/stage2_affordance``)."""
     config_path = os.path.join(src_dir, "config.json")
     if not os.path.isfile(config_path):
         raise FileNotFoundError(f"Affordance config not found: {config_path}")
@@ -95,17 +89,25 @@ def _load_state_dict(ckpt_path: str) -> dict:
 
 
 class AffordancePipeline:
-    """Text-conditioned affordance heatmap flow."""
+    """Text-conditioned affordance heatmap flow.
+
+    Sampling defaults: 50 Euler steps, CFG strength 1.0, initial noise scaled
+    by 0.1 and a zero negative condition. The inference noise scale is much
+    smaller than the training-time scale (5.0) — the flow is trained on
+    logit-space targets, but starting inference from near-zero logits gives
+    sharper heatmaps.
+    """
 
     DEFAULT_STEPS = 50
-    DEFAULT_CFG_STRENGTH = 3.0
+    DEFAULT_CFG_STRENGTH = 1.0
+    DEFAULT_NOISE_SCALE = 0.1
 
     def __init__(
         self,
         denoiser: nn.Module,
         text_conditioner: CLIPTextConditioner,
         sigma_min: float = 1e-5,
-        noise_scale: float = 5.0,
+        noise_scale: float = DEFAULT_NOISE_SCALE,
     ):
         self.models: dict = {
             "denoiser": denoiser,
@@ -124,14 +126,12 @@ class AffordancePipeline:
 
         ``source`` defaults to the public HF repo; passing an existing local
         directory triggers the dev-only local loader instead (see
-        ``_resolve_affo_artifacts_local``).
+        ``_resolve_local_artifacts``).
         """
         if os.path.isdir(source):
-            # Dev path: load directly from a training output dir without
-            # going through HF. End-users should leave this on the HF default.
-            config_path, ckpt_path = _resolve_affo_artifacts_local(source)
+            config_path, ckpt_path = _resolve_local_artifacts(source)
         else:
-            config_path, ckpt_path = _resolve_affo_artifacts_hf(source)
+            config_path, ckpt_path = _resolve_hf_artifacts(source)
 
         with open(config_path) as f:
             raw_config = json.load(f)
@@ -153,7 +153,6 @@ class AffordancePipeline:
             denoiser=denoiser,
             text_conditioner=text_conditioner,
             sigma_min=config["sigma_min"],
-            noise_scale=config["noise_scale"],
         )
 
     def cuda(self) -> "AffordancePipeline":
@@ -177,6 +176,7 @@ class AffordancePipeline:
         steps: int = DEFAULT_STEPS,
         cfg_strength: float = DEFAULT_CFG_STRENGTH,
         noise_scale: Optional[float] = None,
+        neg_cond_mode: str = "zeros",
         seed: Optional[int] = None,
         verbose: bool = True,
     ) -> dict:
@@ -188,8 +188,9 @@ class AffordancePipeline:
             query: text query (e.g. ``"grasp"``).
             steps: flow-matching Euler steps.
             cfg_strength: classifier-free guidance strength.
-            noise_scale: override the training-time noise scale (default
-                5.0 to match the trainer's logit-space noise).
+            noise_scale: initial-noise scale (default ``DEFAULT_NOISE_SCALE``).
+            neg_cond_mode: ``"zeros"`` or ``"empty_text"`` (CLIP embedding of
+                the empty string, i.e. the trainer's unconditional embedding).
             seed: optional torch seed.
 
         Returns:
@@ -203,29 +204,74 @@ class AffordancePipeline:
             raise TypeError("AffordancePipeline.run expects a single string query")
         if coords.numel() == 0:
             raise ValueError("coords is empty — reconstruction returned no voxels")
-
-        denoiser = self.models["denoiser"]
-        text_cond = self.models["text_conditioner"]
-
-        coords = coords.to(self.device).int()
         if int(coords[:, 0].max().item()) != 0 or int(coords[:, 0].min().item()) != 0:
             raise ValueError(
                 "AffordancePipeline.run only supports single-batch coords "
-                "(coords[:, 0] must be all zero)."
+                "(coords[:, 0] must be all zero). Use run_batch for many samples."
             )
+
+        out = self.run_batch(
+            [coords[:, 1:]],
+            [query],
+            steps=steps,
+            cfg_strength=cfg_strength,
+            noise_scale=noise_scale,
+            neg_cond_mode=neg_cond_mode,
+            seed=seed,
+            verbose=verbose,
+        )[0]
+        out["coords"] = coords.to(self.device).int()
+        return out
+
+    @torch.no_grad()
+    def run_batch(
+        self,
+        coords_list: List[torch.Tensor],
+        queries: List[str],
+        *,
+        steps: int = DEFAULT_STEPS,
+        cfg_strength: float = DEFAULT_CFG_STRENGTH,
+        noise_scale: Optional[float] = None,
+        neg_cond_mode: str = "zeros",
+        seed: Optional[int] = None,
+        verbose: bool = False,
+    ) -> List[dict]:
+        """Sample heatmaps for a batch of (voxel set, query) pairs.
+
+        Args:
+            coords_list: list of (N_i, 3) int tensors of voxel indices.
+            queries: one text query per entry in ``coords_list``.
+
+        Returns:
+            list of dicts with ``logits`` (N_i,), ``probs`` (N_i,), ``query``.
+        """
+        assert len(coords_list) == len(queries), "one query per coordinate set"
+        denoiser = self.models["denoiser"]
+        text_cond = self.models["text_conditioner"]
 
         sigma = self.noise_scale if noise_scale is None else float(noise_scale)
         if seed is not None:
             torch.manual_seed(seed)
 
-        in_channels = denoiser.in_channels
-        feats = torch.randn(coords.shape[0], in_channels, device=self.device) * sigma
-        noise = sp.SparseTensor(feats=feats, coords=coords)
+        batched = []
+        for i, coords in enumerate(coords_list):
+            coords = coords.to(self.device).int()
+            index = torch.full((coords.shape[0], 1), i, dtype=torch.int32, device=self.device)
+            batched.append(torch.cat([index, coords], dim=1))
+        batched = torch.cat(batched, dim=0)
 
-        cond = text_cond.encode([query])
-        neg_cond = text_cond.null_cond()
+        feats = torch.randn(batched.shape[0], denoiser.in_channels, device=self.device) * sigma
+        noise = sp.SparseTensor(feats=feats, coords=batched)
 
-        sample_result = self.sampler.sample(
+        cond = text_cond.encode(list(queries))
+        if neg_cond_mode == "zeros":
+            neg_cond = torch.zeros_like(cond)
+        elif neg_cond_mode == "empty_text":
+            neg_cond = text_cond.null_cond().expand_as(cond)
+        else:
+            raise ValueError(f"Unknown neg_cond_mode: {neg_cond_mode}")
+
+        samples = self.sampler.sample(
             denoiser,
             noise=noise,
             cond=cond,
@@ -233,12 +279,12 @@ class AffordancePipeline:
             steps=steps,
             cfg_strength=cfg_strength,
             verbose=verbose,
-        )
-        logits = sample_result.samples.feats.squeeze(-1).float()
-        probs = torch.sigmoid(logits)
-        return {
-            "coords": coords,
-            "logits": logits,
-            "probs": probs,
-            "query": query,
-        }
+        ).samples
+
+        outputs = []
+        for i, query in enumerate(queries):
+            logits = samples.feats[samples.layout[i]].squeeze(-1).float()
+            outputs.append(
+                {"logits": logits, "probs": torch.sigmoid(logits), "query": query}
+            )
+        return outputs

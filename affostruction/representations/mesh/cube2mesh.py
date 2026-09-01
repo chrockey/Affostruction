@@ -14,7 +14,6 @@ class MeshExtractResult:
         self.res = res
         self.success = vertices.shape[0] != 0 and faces.shape[0] != 0
 
-        # training only
         self.tsdf_v = None
         self.tsdf_s = None
         self.reg_loss = None
@@ -29,7 +28,6 @@ class MeshExtractResult:
         v2 = verts[i2, :]
         face_normals = torch.cross(v1 - v0, v2 - v0, dim=-1)
         face_normals = torch.nn.functional.normalize(face_normals, dim=1)
-        # print(face_normals.min(), face_normals.max(), face_normals.shape)
         return face_normals[:, None, :].repeat(1, 3, 1)
 
     def comput_v_normals(self, verts, faces):
@@ -106,7 +104,6 @@ class SparseFeatures2Mesh:
         Returns:
             return the success tag and ni you loss,
         """
-        # add sdf bias to verts_attrs
         coords = cubefeats.coords[:, 1:]
         feats = cubefeats.feats
 

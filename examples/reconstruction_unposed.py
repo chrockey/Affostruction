@@ -40,7 +40,6 @@ import rootutils
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 import json
-from pathlib import Path
 
 import fire
 import numpy as np
@@ -126,10 +125,6 @@ def load_unposed_metric_data(data_dir: str) -> dict:
     original_mask_path = os.path.join(data_dir, "original_mask.png")
     original_intr_path = os.path.join(data_dir, "original_intrinsics.json")
 
-    # RGB + mask -> RGBA. Zero out background RGB before assembling, so that
-    # the pipeline's LANCZOS resize cannot bleed the real-world backdrop
-    # (tabletop etc.) into object-edge pixels. Matches how sample1/2 are
-    # rendered: alpha=0 pixels also have RGB=0.
     rgb_image = Image.open(rgb_path).convert("RGB")
     mask_image = Image.open(crop_mask_path).convert("L").resize(
         rgb_image.size, Image.NEAREST
@@ -151,8 +146,6 @@ def load_unposed_metric_data(data_dir: str) -> dict:
             f"{(rgba.size[1], rgba.size[0])}"
         )
 
-    # Derive crop intrinsics on the fly from the original pinhole intrinsics
-    # and the two masks, rather than storing a precomputed crop_intrinsics.json.
     with open(original_intr_path) as f:
         original_intrinsics = json.load(f)
     for key in ("fx", "fy", "cx", "cy"):
@@ -169,19 +162,6 @@ def load_unposed_metric_data(data_dir: str) -> dict:
             "cx": intr["cx"],
             "cy": intr["cy"],
         },
-        # Canonical Blender-convention front view: camera at world origin,
-        # Z_local (Blender "backward") = world -Y, Y_local (Blender "up") =
-        # world +Z. Blender forward = -Z_local = world +Y, so the camera
-        # faces +Y in a Z-up world, matching Blender's default front-view
-        # convention (viewer at -Y looking toward +Y). After the pipeline's
-        # Blender->OpenCV Y/Z column flip, image-y maps to world -Z
-        # (TRELLIS down) and OpenCV depth (+z_cam) maps to world +Y --
-        # after AABB centering, the close-to-camera center of the object
-        # sits at -y (closer to the Blender front viewer) and the far edges
-        # at +y, so the visible surface appears convex/outside as expected.
-        # Translation is zero because the metric path AABB-normalizes the
-        # point cloud around the camera origin; a non-zero translation
-        # would push points outside the [-0.5, 0.5]^3 bounds filter.
         "transform_matrix": np.array(
             [
                 [1.0, 0.0,  0.0, 0.0],

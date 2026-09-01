@@ -7,6 +7,7 @@ converting multi-view RGBD images with camera parameters into 3D meshes.
 
 from typing import List, Optional, Tuple
 import json
+import os
 
 import numpy as np
 import torch
@@ -49,7 +50,6 @@ class PositionalEncoding3D(nn.Module):
         self.channels = channels
         self.resolution = resolution
 
-        # Pre-compute positional encodings for all positions
         self._precompute_pos_embed()
 
     def _precompute_pos_embed(self):
@@ -64,9 +64,9 @@ class PositionalEncoding3D(nn.Module):
         sin_inp_y = torch.einsum("i,j->ij", pos_y, self.inv_freq)
         sin_inp_z = torch.einsum("i,j->ij", pos_z, self.inv_freq)
 
-        emb_x = _get_emb(sin_inp_x).unsqueeze(1).unsqueeze(1)  # [x, 1, 1, channels]
-        emb_y = _get_emb(sin_inp_y).unsqueeze(1)  # [y, 1, channels]
-        emb_z = _get_emb(sin_inp_z)  # [z, channels]
+        emb_x = _get_emb(sin_inp_x).unsqueeze(1).unsqueeze(1)
+        emb_y = _get_emb(sin_inp_y).unsqueeze(1)
+        emb_z = _get_emb(sin_inp_z)
 
         emb = torch.zeros(
             (x, y, z, self.channels * 3),
@@ -76,10 +76,8 @@ class PositionalEncoding3D(nn.Module):
         emb[:, :, :, self.channels : 2 * self.channels] = emb_y
         emb[:, :, :, 2 * self.channels :] = emb_z
 
-        # Truncate to original channels
         emb = emb[:, :, :, : self.org_channels]
 
-        # Store as buffer
         self.register_buffer("pos_embed", emb)
 
     def forward(self, voxel_coords: torch.Tensor) -> torch.Tensor:
@@ -110,6 +108,31 @@ def _resolve_recon_artifacts(repo_id: str) -> Tuple[str, str]:
     return config_path, ckpt_path
 
 
+def _load_local_recon_ckpt(train_dir: str) -> Tuple[dict, dict]:
+    """Load (inference config, state_dict) from a local training output dir.
+
+    The dir must hold the training ``config.json`` plus the latest
+    ``ckpts/denoiser_ema*.pt``. The training config is reduced to the same
+    fields the released config carries.
+    """
+    import glob
+
+    with open(os.path.join(train_dir, "config.json")) as f:
+        train_cfg = json.load(f)
+    ss_config = {
+        "denoiser": train_cfg["models"]["denoiser"],
+        "voxel_resolution": train_cfg["trainer"]["args"]["voxel_resolution"],
+        "image_size": train_cfg["dataset"]["args"]["image_size"],
+        "dinov2_model": train_cfg["trainer"]["args"]["dinov2_model"],
+    }
+    candidates = sorted(glob.glob(os.path.join(train_dir, "ckpts", "denoiser_ema*.pt")))
+    if not candidates:
+        raise FileNotFoundError(f"No denoiser_ema*.pt in {train_dir}/ckpts")
+    print(f"Loading sparse structure flow from local checkpoint: {candidates[-1]}")
+    state_dict = torch.load(candidates[-1], map_location="cpu", weights_only=True)
+    return ss_config, state_dict
+
+
 class ReconstructionPipeline:
     """
     Multi-view RGBD to 3D reconstruction pipeline.
@@ -127,12 +150,10 @@ class ReconstructionPipeline:
         self.models = {}
         self.device = "cpu"
 
-        # Pipeline configuration (defaults, overwritten by from_pretrained)
         self.voxel_resolution = 16
         self.image_size = 224
         self.dinov2_feat_dim = 1024
 
-        # Sampler parameters (defaults from pretrained config)
         self.sparse_structure_sampler_params = {
             "steps": 12,
             "cfg_strength": 7.5,
@@ -142,7 +163,6 @@ class ReconstructionPipeline:
             "cfg_strength": 3.0,
         }
 
-        # Will be initialized in from_pretrained
         self.sparse_structure_sampler = None
         self.slat_sampler = None
         self.slat_normalization = None
@@ -158,30 +178,34 @@ class ReconstructionPipeline:
         Load reconstruction pipeline from HuggingFace.
 
         Args:
-            repo_id: HF repo id (default ``"chrockey/Affostruction"``). The
+            repo_id: HF repo id (default ``"chrockey/Affostruction"``; the
                 reconstruction checkpoint lives under the ``reconstruction/``
-                subfolder as ``config.json`` + ``model.safetensors``.
+                subfolder as ``config.json`` + ``model.safetensors``), OR a
+                local training output dir holding ``config.json`` +
+                ``ckpts/denoiser_ema*.pt`` — lets freshly trained stage-1
+                checkpoints run without a HF round-trip.
             pretrained_slat: HuggingFace model ID for pretrained SLAT flow and decoders
 
         Returns:
             ReconstructionPipeline instance
         """
-        config_path, ckpt_path = _resolve_recon_artifacts(repo_id)
+        if os.path.isdir(repo_id):
+            ss_config, ss_state_dict = _load_local_recon_ckpt(repo_id)
+        else:
+            config_path, ckpt_path = _resolve_recon_artifacts(repo_id)
+            with open(config_path) as f:
+                ss_config = json.load(f)
+            print(f"Loading sparse structure flow from: {ckpt_path}")
+            ss_state_dict = load_safetensors(ckpt_path)
 
-        # Load base TRELLIS pipeline for SLAT and decoders
         print(f"Loading pretrained SLAT and decoders from {pretrained_slat}...")
         base_pipeline = Pipeline.from_pretrained(pretrained_slat)
 
-        with open(config_path) as f:
-            ss_config = json.load(f)
-
-        print(f"Loading sparse structure flow from: {ckpt_path}")
         ss_flow_model = getattr(models, ss_config["denoiser"]["name"])(
             **ss_config["denoiser"]["args"]
         )
-        ss_flow_model.load_state_dict(load_safetensors(ckpt_path))
+        ss_flow_model.load_state_dict(ss_state_dict)
 
-        # Create pipeline instance
         pipeline = ReconstructionPipeline()
         pipeline.models = base_pipeline.models
         pipeline.models["sparse_structure_flow_model"] = ss_flow_model
@@ -189,7 +213,6 @@ class ReconstructionPipeline:
         pipeline.voxel_resolution = ss_config["voxel_resolution"]
         pipeline.image_size = ss_config["image_size"]
 
-        # Set up samplers from base pipeline
         args = base_pipeline._pretrained_args
         pipeline.sparse_structure_sampler = getattr(
             samplers, args["sparse_structure_sampler"]["name"]
@@ -213,7 +236,6 @@ class ReconstructionPipeline:
         dinov2_model.eval()
         self.models["image_cond_model"] = dinov2_model
 
-        # Get feature dimension
         if "vitl" in name or "vitg" in name:
             self.dinov2_feat_dim = 1024
         elif "vitb" in name:
@@ -223,12 +245,10 @@ class ReconstructionPipeline:
         else:
             self.dinov2_feat_dim = 1024
 
-        # Image transform
         self.image_cond_model_transform = transforms.Normalize(
             mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
         )
 
-        # Positional encoder for voxels
         self.pos_encoder = PositionalEncoding3D(
             channels=self.dinov2_feat_dim,
             resolution=self.voxel_resolution,
@@ -268,6 +288,16 @@ class ReconstructionPipeline:
         """
         Convert depth image to voxel coordinates and UV coordinates.
 
+        The 16-bit depth PNGs fill background pixels with the sentinel max
+        (normalised ~1.0), and the alpha channel can be a pixel wider than the
+        rendered object, so background-depth pixels are rejected explicitly on
+        top of the alpha test.
+
+        Objects are normalised into [-0.5, 0.5]^3, so surfaces flush against a
+        face sit exactly on the boundary and depth quantisation scatters them a
+        hair outside; those are clamped into the edge voxel, while anything
+        further out than one voxel is treated as broken input and dropped.
+
         Args:
             depth_array: Normalized depth [0, 1]
             alpha_mask: Alpha mask
@@ -282,14 +312,8 @@ class ReconstructionPipeline:
             unique_voxel_coords: (N, 3) voxel indices
             unique_uv_coords: (N, 2) UV coordinates normalized to [-1, 1]
         """
-        # Convert normalized depth to absolute depth
         absolute_depth = depth_array * (depth_max - depth_min) + depth_min
 
-        # Valid mask. The dataset's alpha channel is typically a pixel or
-        # two wider than the rendered object, while the source 16-bit depth
-        # PNG fills empty pixels with the sentinel max (= depth_array ≈ 1).
-        # Without this guard those rim pixels would unproject to
-        # ``depth_max`` distance and seed voxels behind the real surface.
         DEPTH_BG_NORMALIZED = 0.999
         valid_mask = (
             (absolute_depth > 0)
@@ -299,23 +323,20 @@ class ReconstructionPipeline:
         if not valid_mask.any():
             return np.zeros((0, 3), dtype=np.int64), np.zeros((0, 2), dtype=np.float32)
 
-        # Camera intrinsics
         focal_length = width / (2.0 * np.tan(camera_angle_x / 2.0))
         cx, cy = width / 2.0, height / 2.0
 
-        # Create coordinate grids
         y_coords, x_coords = np.meshgrid(np.arange(height), np.arange(width), indexing="ij")
+        x_coords = x_coords + 0.5
+        y_coords = y_coords + 0.5
 
-        # Convert to camera coordinates
         x_cam = (x_coords - cx) * absolute_depth / focal_length
         y_cam = (y_coords - cy) * absolute_depth / focal_length
         z_cam = absolute_depth
 
-        # Stack to [H, W, 3]
         xyz_cam = np.stack([x_cam, y_cam, z_cam], axis=-1)
         xyz_cam_valid = xyz_cam[valid_mask]
 
-        # Transform to world coordinates
         c2w = np.array(transform_matrix)
         c2w_corrected = c2w.copy()
         c2w_corrected[:3, 1:3] *= -1
@@ -326,28 +347,24 @@ class ReconstructionPipeline:
         xyz_world_homo = xyz_cam_homo @ c2w_corrected.T
         xyz_world = xyz_world_homo[:, :3]
 
-        # Filter points outside [-0.5, 0.5] bounds
-        bounds_mask = (xyz_world >= -0.5) & (xyz_world <= 0.5)
+        tolerance = 1.0 / self.voxel_resolution
+        bounds_mask = (xyz_world >= -0.5 - tolerance) & (xyz_world <= 0.5 + tolerance)
         bounds_mask = bounds_mask.all(axis=1)
         xyz_world = xyz_world[bounds_mask]
 
         if xyz_world.shape[0] == 0:
             return np.zeros((0, 3), dtype=np.int64), np.zeros((0, 2), dtype=np.float32)
 
-        # Convert to voxel indices
         voxel_coords = ((xyz_world + 0.5) * self.voxel_resolution).astype(np.int64)
         voxel_coords = np.clip(voxel_coords, 0, self.voxel_resolution - 1)
 
-        # Get UV coordinates
         valid_indices = np.argwhere(valid_mask)
         uv_coords = valid_indices[:, [1, 0]].astype(np.float32)
         uv_coords = uv_coords[bounds_mask]
 
-        # Normalize to [-1, 1]
         uv_coords[:, 0] = uv_coords[:, 0] / width * 2 - 1
         uv_coords[:, 1] = uv_coords[:, 1] / height * 2 - 1
 
-        # Aggregate overlapping voxels by averaging UV
         R = self.voxel_resolution
         voxel_codes = voxel_coords[:, 0] * R * R + voxel_coords[:, 1] * R + voxel_coords[:, 2]
 
@@ -359,7 +376,6 @@ class ReconstructionPipeline:
             mask = inverse_indices == i
             unique_uv_coords[i] = uv_coords[mask].mean(axis=0)
 
-        # Decode unique voxel coordinates
         unique_voxel_coords = np.zeros((num_unique, 3), dtype=np.int64)
         unique_voxel_coords[:, 0] = unique_codes // (R * R)
         unique_voxel_coords[:, 1] = (unique_codes % (R * R)) // R
@@ -418,6 +434,8 @@ class ReconstructionPipeline:
         y_coords, x_coords = np.meshgrid(
             np.arange(height), np.arange(width), indexing="ij"
         )
+        x_coords = x_coords + 0.5
+        y_coords = y_coords + 0.5
 
         x_cam = (x_coords - cx) * depth_metric / fx
         y_cam = (y_coords - cy) * depth_metric / fy
@@ -426,18 +444,6 @@ class ReconstructionPipeline:
         xyz_cam = np.stack([x_cam, y_cam, z_cam], axis=-1)
         xyz_cam_valid = xyz_cam[valid_mask]
 
-        # Normalize into [-0.5, 0.5]^3 with in-plane scale + front-face anchor.
-        # Both knobs are derived from the voxel grid rather than hand-tuned:
-        #   - one voxel of padding on every side (`margin = 1/voxel_resolution`)
-        #   - in-plane AABB scaled to fill the cube up to that margin
-        #   - closest-to-camera surface snapped to `y = -0.5 + margin` (front
-        #     voxel row), leaving the entire rest of the depth axis as
-        #     empty space for the sparse-structure flow to populate with
-        #     occluded back geometry.
-        # The depth axis is intentionally excluded from scale estimation: a
-        # single-view slab is much thinner along depth than the object's
-        # true cross-section, so the in-plane extent acts as the proxy for
-        # true object size (valid when the view is roughly head-on).
         pc_min = xyz_cam_valid.min(axis=0)
         pc_max = xyz_cam_valid.max(axis=0)
         in_plane_extent = float(max(pc_max[0] - pc_min[0], pc_max[1] - pc_min[1]))
@@ -456,9 +462,6 @@ class ReconstructionPipeline:
         )
         xyz_cam_valid = (xyz_cam_valid - centroid) * scale
 
-        # Camera -> TRELLIS world: negate Y,Z rotation columns (matches the
-        # convention used by `_depth_to_voxel_coords`). With identity c2w this
-        # yields a front-facing view with Y up, Z backward.
         c2w = np.array(transform_matrix, dtype=np.float64)
         c2w_corrected = c2w.copy()
         c2w_corrected[:3, 1:3] *= -1
@@ -518,7 +521,7 @@ class ReconstructionPipeline:
         with torch.autocast(device_type="cuda", dtype=torch.float16):
             features_dict = self.models["image_cond_model"](rgb, is_training=True)
 
-        n_patch = rgb.shape[-1] // 14  # DINOv2 patch size is 14
+        n_patch = rgb.shape[-1] // 14
         patchtokens = features_dict["x_prenorm"][
             :, self.models["image_cond_model"].num_register_tokens + 1 :
         ]
@@ -542,17 +545,13 @@ class ReconstructionPipeline:
         all_coords = torch.cat(voxel_coords_list, dim=0)
         all_features = torch.cat(features_list, dim=0)
 
-        # Hash voxel coordinates
         R = self.voxel_resolution
         voxel_hashes = all_coords[:, 0] * R * R + all_coords[:, 1] * R + all_coords[:, 2]
 
-        # Find unique voxels
         unique_hashes, inverse_indices = torch.unique(voxel_hashes, return_inverse=True)
 
-        # Average features
         averaged_features = scatter(all_features, inverse_indices, dim=0, reduce="mean")
 
-        # Decode coordinates
         num_unique = unique_hashes.shape[0]
         unique_coords = torch.zeros(num_unique, 3, dtype=torch.long, device=all_coords.device)
         unique_coords[:, 0] = unique_hashes // (R * R)
@@ -579,14 +578,11 @@ class ReconstructionPipeline:
         for coords, feats in zip(coords_list, feats_list):
             num_valid_voxels = coords.shape[0]
 
-            # Apply layer norm
             feats = F.layer_norm(feats, feats.shape[-1:])
 
-            # Add positional embeddings
             pos_emb = self.pos_encoder(coords).to(feats.device)
             valid_feats = feats + pos_emb
 
-            # Pad to max_voxels
             num_padding = max_voxels - num_valid_voxels
             if num_padding > 0:
                 padding_feats = torch.zeros(
@@ -639,22 +635,17 @@ class ReconstructionPipeline:
         view_voxel_coords = []
         view_features_list = []
 
-        # Prepare RGB images for batched DINOv2 inference
         rgb_tensors = []
         for img in images:
-            # Ensure image has alpha channel
             if img.mode != "RGBA":
                 img = img.convert("RGBA")
 
-            # Resize
             img_resized = img.resize((self.image_size, self.image_size), Image.LANCZOS)
 
-            # Convert to array
             img_array = np.array(img_resized).astype(np.float32) / 255.0
             rgb = img_array[:, :, :3]
             alpha = img_array[:, :, 3]
 
-            # Apply alpha blending
             rgb_blended = rgb * alpha[..., None]
 
             rgb_tensor = torch.from_numpy(rgb_blended).permute(2, 0, 1).float()
@@ -662,19 +653,12 @@ class ReconstructionPipeline:
 
         rgb_batch = torch.stack(rgb_tensors, dim=0).to(self.device)
 
-        # Extract DINOv2 features
         batch_features = self._extract_dinov2_features(rgb_batch)
 
-        # Process each view
         for view_idx, (depth, alpha, cam_params) in enumerate(zip(depths, alphas, camera_params)):
             is_metric = bool(cam_params.get("metric_depth", False))
 
             if is_metric:
-                # Metric depth: zero out background before resize, then use
-                # NEAREST on both depth and mask so boundary pixels don't
-                # interpolate across depth discontinuities (bilinear would
-                # bleed background zeros into foreground and inflate the
-                # point cloud's z extent, corrupting the scale normalization).
                 orig_h, orig_w = depth.shape[:2]
                 depth_masked = depth * (alpha > 0).astype(depth.dtype)
                 depth_resized = np.array(
@@ -688,7 +672,6 @@ class ReconstructionPipeline:
                     )
                 ).astype(np.float32)
 
-                # Rescale intrinsics to the resized resolution.
                 sx = self.image_size / float(orig_w)
                 sy = self.image_size / float(orig_h)
                 src_K = cam_params["intrinsics"]
@@ -733,7 +716,6 @@ class ReconstructionPipeline:
                 voxel_coords = torch.from_numpy(voxel_coords).long().to(self.device)
                 uv_coords = torch.from_numpy(uv_coords).float().to(self.device)
 
-                # Sample features at UV coordinates
                 features = batch_features[view_idx : view_idx + 1]
                 sampled_features = F.grid_sample(
                     features,
@@ -746,7 +728,6 @@ class ReconstructionPipeline:
                 view_voxel_coords.append(voxel_coords)
                 view_features_list.append(sampled_features)
 
-        # Aggregate voxels from all views
         if len(view_voxel_coords) > 0:
             aggregated_coords, aggregated_features = self._aggregate_multiview_voxels(
                 view_voxel_coords, view_features_list
@@ -757,7 +738,6 @@ class ReconstructionPipeline:
                 0, self.dinov2_feat_dim, dtype=torch.float32, device=self.device
             )
 
-        # Batch-wise padding
         cond, padding_mask = self._batch_pad_voxels([aggregated_coords], [aggregated_features])
 
         neg_cond = torch.zeros_like(cond)
@@ -777,25 +757,22 @@ class ReconstructionPipeline:
         Returns:
             dict: Conditioning with keys 'cond', 'neg_cond'
         """
-        from .preprocessing_utils import preprocess_image_with_bbox
+        from ..utils.image import preprocess_image_with_bbox
 
         images = input_dict["images"]
         img = images[0]
 
-        # Preprocess first image with bbox crop + alpha blending at 518x518
         rgb_tensor = (
             preprocess_image_with_bbox(img, target_size=518, size_ratio=1.2, return_tensor=True)
             .unsqueeze(0)
             .to(self.device)
         )
 
-        # Extract DINOv2 features
         rgb_batch = self.image_cond_model_transform(rgb_tensor).to(self.device)
 
         with torch.autocast(device_type="cuda", dtype=torch.float16):
             features = self.models["image_cond_model"](rgb_batch, is_training=True)["x_prenorm"]
 
-        # Apply layer norm
         patchtokens = F.layer_norm(features, features.shape[-1:])
 
         neg_cond = torch.zeros_like(patchtokens)
@@ -826,21 +803,17 @@ class ReconstructionPipeline:
         reso = flow_model.resolution
         noise = torch.randn(num_samples, flow_model.in_channels, reso, reso, reso).to(self.device)
 
-        # Merge default params with overrides
         params = {**self.sparse_structure_sampler_params, **(sampler_params or {})}
 
-        # Apply noise_scale if provided
         noise_scale = params.pop("noise_scale", 1.0)
         noise = noise * noise_scale
 
-        # Extract conditioning arguments
         cond_args = {k: v for k, v in cond.items() if k in ["cond", "neg_cond", "cond_mask"]}
 
         z_s = self.sparse_structure_sampler.sample(
             flow_model, noise, **cond_args, **params, verbose=True
         ).samples
 
-        # Decode occupancy latent
         decoder = self.models["sparse_structure_decoder"]
         coords = torch.argwhere(decoder(z_s) > 0)[:, [0, 2, 3, 4]].int()
 
@@ -866,10 +839,8 @@ class ReconstructionPipeline:
         flow_model = self.models["slat_flow_model"]
         noise_feats = torch.randn(coords.shape[0], flow_model.in_channels).to(self.device)
 
-        # Merge default params with overrides
         params = {**self.slat_sampler_params, **(sampler_params or {})}
 
-        # Apply noise_scale if provided
         noise_scale = params.pop("noise_scale", 1.0)
         noise_feats = noise_feats * noise_scale
 
@@ -878,7 +849,6 @@ class ReconstructionPipeline:
             coords=coords,
         )
 
-        # Extract conditioning arguments
         cond_args = {k: v for k, v in cond.items() if k in ["cond", "neg_cond", "cond_mask"]}
 
         slat = self.slat_sampler.sample(
@@ -901,7 +871,7 @@ class ReconstructionPipeline:
 
         Args:
             slat: Structured latent
-            formats: Output formats ("mesh", "gaussian", "radiance_field")
+            formats: Output formats ("mesh", "gaussian")
 
         Returns:
             dict: Decoded outputs
@@ -911,8 +881,6 @@ class ReconstructionPipeline:
             ret["mesh"] = self.models["slat_decoder_mesh"](slat)
         if "gaussian" in formats:
             ret["gaussian"] = self.models["slat_decoder_gs"](slat)
-        if "radiance_field" in formats:
-            ret["radiance_field"] = self.models["slat_decoder_rf"](slat)
         return ret
 
     @torch.no_grad()
@@ -948,7 +916,6 @@ class ReconstructionPipeline:
         Returns:
             dict: Generated 3D assets
         """
-        # Get conditioning for sparse structure
         cond_ss = self.get_cond(input_dict)
 
         torch.manual_seed(seed)
@@ -956,15 +923,9 @@ class ReconstructionPipeline:
             cond_ss, num_samples, sparse_structure_sampler_params
         )
 
-        # Get conditioning for SLAT (use single image for pretrained SLAT)
         cond_slat = self.get_cond_single_image(input_dict)
 
         slat = self.sample_slat(cond_slat, coords, slat_sampler_params)
-        # ``formats=None`` skips mesh/gaussian decoding entirely. Decoding is
-        # only needed for rendering (textured GLB, gaussian PLY, side-by-side
-        # video) — the affordance pipeline runs on coords + slat directly, so
-        # we keep decoding opt-in to avoid pulling in nvdiffrast/kaolin when
-        # callers only want the heatmap.
         outputs = self.decode_slat(slat, formats if formats is not None else [])
 
         if return_intermediates:

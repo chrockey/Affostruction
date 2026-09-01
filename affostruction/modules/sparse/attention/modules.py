@@ -111,7 +111,7 @@ class SparseMultiHeadAttention(nn.Module):
         return x.replace(x_feats.squeeze(0)) if isinstance(x, SparseTensor) else x_feats
 
     def _rope(self, qkv: SparseTensor) -> SparseTensor:
-        q, k, v = qkv.feats.unbind(dim=1)  # [T, H, C]
+        q, k, v = qkv.feats.unbind(dim=1)
         q, k = self.rope(q, k, qkv.coords[:, 1:])
         qkv = qkv.replace(torch.stack([q, k, v], dim=1))
         return qkv

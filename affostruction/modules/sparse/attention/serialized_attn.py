@@ -62,7 +62,6 @@ def calc_serialization(
     if "vox2seq" not in globals():
         import vox2seq
 
-    # Serialize the input
     serialize_coords = tensor.coords[:, 1:].clone()
     serialize_coords += torch.tensor(
         shift_window, dtype=torch.int32, device=tensor.device
@@ -96,7 +95,6 @@ def calc_serialization(
             seq_batch_indices.append(bi)
             offsets.append(offsets[-1] + seq_lens[-1])
         else:
-            # Partition the input
             offset = 0
             mids = [(i + 0.5) * valid_window_size + shift_sequence for i in range(num_windows)]
             split = [
@@ -175,7 +173,7 @@ def sparse_serialized_scaled_dot_product_self_attention(
     H = qkv.feats.shape[2]
     C = qkv.feats.shape[3]
 
-    qkv_feats = qkv.feats[fwd_indices]  # [M, 3, H, C]
+    qkv_feats = qkv.feats[fwd_indices]
 
     if DEBUG:
         start = 0
@@ -191,21 +189,21 @@ def sparse_serialized_scaled_dot_product_self_attention(
         N = window_size
         qkv_feats = qkv_feats.reshape(B, N, 3, H, C)
         if ATTN == "xformers":
-            q, k, v = qkv_feats.unbind(dim=2)  # [B, N, H, C]
-            out = xops.memory_efficient_attention(q, k, v)  # [B, N, H, C]
+            q, k, v = qkv_feats.unbind(dim=2)
+            out = xops.memory_efficient_attention(q, k, v)
         elif ATTN == "flash_attn":
-            out = flash_attn.flash_attn_qkvpacked_func(qkv_feats)  # [B, N, H, C]
+            out = flash_attn.flash_attn_qkvpacked_func(qkv_feats)
         else:
             raise ValueError(f"Unknown attention module: {ATTN}")
-        out = out.reshape(B * N, H, C)  # [M, H, C]
+        out = out.reshape(B * N, H, C)
     else:
         if ATTN == "xformers":
-            q, k, v = qkv_feats.unbind(dim=1)  # [M, H, C]
-            q = q.unsqueeze(0)  # [1, M, H, C]
-            k = k.unsqueeze(0)  # [1, M, H, C]
-            v = v.unsqueeze(0)  # [1, M, H, C]
+            q, k, v = qkv_feats.unbind(dim=1)
+            q = q.unsqueeze(0)
+            k = k.unsqueeze(0)
+            v = v.unsqueeze(0)
             mask = xops.fmha.BlockDiagonalMask.from_seqlens(seq_lens)
-            out = xops.memory_efficient_attention(q, k, v, mask)[0]  # [M, H, C]
+            out = xops.memory_efficient_attention(q, k, v, mask)[0]
         elif ATTN == "flash_attn":
             cu_seqlens = (
                 torch.cat([torch.tensor([0]), torch.cumsum(torch.tensor(seq_lens), dim=0)], dim=0)
@@ -214,9 +212,9 @@ def sparse_serialized_scaled_dot_product_self_attention(
             )
             out = flash_attn.flash_attn_varlen_qkvpacked_func(
                 qkv_feats, cu_seqlens, max(seq_lens)
-            )  # [M, H, C]
+            )
 
-    out = out[bwd_indices]  # [T, H, C]
+    out = out[bwd_indices]
 
     if DEBUG:
         qkv_coords = qkv_coords[bwd_indices]

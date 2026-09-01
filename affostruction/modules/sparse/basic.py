@@ -1,9 +1,8 @@
 from typing import *
 import torch
-import torch.nn as nn
 from . import BACKEND, DEBUG
 
-SparseTensorData = None  # Lazy import
+SparseTensorData = None
 
 
 __all__ = [
@@ -53,7 +52,6 @@ class SparseTensor:
         ...
 
     def __init__(self, *args, **kwargs):
-        # Lazy import of sparse tensor backend
         global SparseTensorData
         if SparseTensorData is None:
             import importlib
@@ -279,7 +277,6 @@ class SparseTensor:
     def replace(
         self, feats: torch.Tensor, coords: Optional[torch.Tensor] = None
     ) -> "SparseTensor":
-        # Ensure SparseTensorData is imported
         global SparseTensorData
         if SparseTensorData is None:
             import importlib

@@ -16,7 +16,7 @@ class AbsolutePositionEmbedder(nn.Module):
         self.freq_dim = channels // in_channels // 2
         self.freqs = torch.arange(self.freq_dim, dtype=torch.float32) / self.freq_dim
         self.freqs = 1.0 / (10000 ** self.freqs)
-        
+
     def _sin_cos_embedding(self, x: torch.Tensor) -> torch.Tensor:
         """
         Create sinusoidal position embeddings.
@@ -179,4 +179,3 @@ class TransformerCrossBlock(nn.Module):
             return torch.utils.checkpoint.checkpoint(self._forward, x, context, use_reentrant=False)
         else:
             return self._forward(x, context)
-        

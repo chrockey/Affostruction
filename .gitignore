@@ -15,6 +15,7 @@ ENV/
 # Local files
 .claude/
 outputs/
+wandb/
 *.log
 *.tmp
 
@@ -30,6 +31,3 @@ example_results/
 # Local paper / supplementary
 paper.pdf
 *.pdf
-
-# Caveman compress backups
-*.original.md

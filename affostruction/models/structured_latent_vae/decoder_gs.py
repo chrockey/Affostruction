@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from ...modules import sparse as sp
-from ...utils.random_utils import hammersley_sequence
+from ...utils.sampling import hammersley_sequence
 from .base import SparseTransformerBase
 from ...representations import Gaussian
 
@@ -54,7 +54,6 @@ class SLatGaussianDecoder(SparseTransformerBase):
 
     def initialize_weights(self) -> None:
         super().initialize_weights()
-        # Zero-out output layers:
         nn.init.constant_(self.out_layer.weight, 0)
         nn.init.constant_(self.out_layer.bias, 0)
 

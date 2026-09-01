@@ -1,6 +1,7 @@
 import importlib
 
 __attributes = {
+    "SparseStructureEncoder": "sparse_structure_vae",
     "SparseStructureDecoder": "sparse_structure_vae",
     "SparseStructureFlowModel": "sparse_structure_flow",
     "SLatGaussianDecoder": "structured_latent_vae",
@@ -63,9 +64,8 @@ def from_pretrained(path: str, **kwargs):
     return model
 
 
-# For Pylance
 if __name__ == "__main__":
-    from .sparse_structure_vae import SparseStructureDecoder
+    from .sparse_structure_vae import SparseStructureEncoder, SparseStructureDecoder
     from .sparse_structure_flow import SparseStructureFlowModel
     from .structured_latent_vae import SLatGaussianDecoder, SLatMeshDecoder
     from .structured_latent_flow import SLatFlowModel, ElasticSLatFlowModel

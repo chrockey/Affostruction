@@ -1,0 +1,89 @@
+{
+    "models": {
+        "denoiser": {
+            "name": "SparseStructureFlowModel",
+            "args": {
+                "resolution": 16,
+                "in_channels": 8,
+                "out_channels": 8,
+                "model_channels": 768,
+                "cond_channels": 1024,
+                "num_blocks": 12,
+                "num_heads": 12,
+                "mlp_ratio": 4,
+                "patch_size": 1,
+                "pe_mode": "ape",
+                "qk_rms_norm": true,
+                "use_fp16": true
+            }
+        }
+    },
+    "dataset": {
+        "name": "ReconstructionDataset",
+        "args": {
+            "latent_model": "ss_enc_conv3d_16l8_fp16",
+            "min_aesthetic_score": 4.5,
+            "voxel_resolution": 16,
+            "image_size": 224,
+            "max_views": 8,
+            "num_views": null
+        }
+    },
+    "trainer": {
+        "name": "ReconstructionFlowTrainer",
+        "args": {
+            "max_steps": 1000000,
+            "batch_size_per_gpu": 8,
+            "batch_split": 1,
+            "optimizer": {
+                "name": "AdamW",
+                "args": {
+                    "lr": 0.0001,
+                    "weight_decay": 0.0
+                }
+            },
+            "ema_rate": [
+                0.9999
+            ],
+            "fp16_mode": "inflat_all",
+            "fp16_scale_growth": 0.001,
+            "grad_clip": {
+                "name": "AdaptiveGradClipper",
+                "args": {
+                    "max_norm": 1.0,
+                    "clip_percentile": 95
+                }
+            },
+            "save_best_only": true,
+            "enable_visualization": false,
+            "wandb_sample_count": 8,
+            "save_samples_to_disk": false,
+            "validation_config": {
+                "enabled": true,
+                "data_dir": "trellis_data/toys4k",
+                "batch_size": 8,
+                "num_views": 1,
+                "metric_mode": "min",
+                "primary_metric": "mse",
+                "manifest": "manifests/toys4k_test.txt"
+            },
+            "i_log": 1000,
+            "i_sample": 5000,
+            "i_save": 5000,
+            "p_uncond": 0.1,
+            "t_schedule": {
+                "name": "logitNormal",
+                "args": {
+                    "mean": 1.0,
+                    "std": 1.0
+                }
+            },
+            "sigma_min": 1e-05,
+            "dinov2_model": "dinov2_vitl14_reg",
+            "voxel_resolution": 16,
+            "use_amp": true,
+            "num_workers": 8,
+            "prefetch_data": true
+        }
+    }
+}

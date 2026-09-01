@@ -2,11 +2,10 @@ import torch
 import numpy as np
 from tqdm import tqdm
 import utils3d
-from PIL import Image
 
-from ..renderers import OctreeRenderer, GaussianRenderer, MeshRenderer
-from ..representations import Octree, Gaussian, MeshExtractResult
-from .random_utils import sphere_hammersley_sequence
+from ..renderers import GaussianRenderer, MeshRenderer
+from ..representations import Gaussian, MeshExtractResult
+from .sampling import sphere_hammersley_sequence
 
 
 def yaw_pitch_r_fov_to_extrinsics_intrinsics(yaws, pitchs, rs, fovs):
@@ -47,15 +46,7 @@ def yaw_pitch_r_fov_to_extrinsics_intrinsics(yaws, pitchs, rs, fovs):
 
 
 def get_renderer(sample, **kwargs):
-    if isinstance(sample, Octree):
-        renderer = OctreeRenderer()
-        renderer.rendering_options.resolution = kwargs.get("resolution", 512)
-        renderer.rendering_options.near = kwargs.get("near", 0.8)
-        renderer.rendering_options.far = kwargs.get("far", 1.6)
-        renderer.rendering_options.bg_color = kwargs.get("bg_color", (0, 0, 0))
-        renderer.rendering_options.ssaa = kwargs.get("ssaa", 4)
-        renderer.pipe.primitive = sample.primitive
-    elif isinstance(sample, Gaussian):
+    if isinstance(sample, Gaussian):
         renderer = GaussianRenderer()
         renderer.rendering_options.resolution = kwargs.get("resolution", 512)
         renderer.rendering_options.near = kwargs.get("near", 0.8)
@@ -138,22 +129,3 @@ def render_multiview(sample, resolution=512, nviews=30):
     return res["color"], extrinsics, intrinsics
 
 
-# This one is used for generation evaluation (appearance quality)
-# The paper sets radius=2 and fov=40.
-def render_snapshot(
-    samples,
-    resolution=512,
-    bg_color=(0, 0, 0),
-    offset=(-16 / 180 * np.pi, 20 / 180 * np.pi),
-    r=10,
-    fov=8,
-    **kwargs,
-):
-    yaw = [0, np.pi / 2, np.pi, 3 * np.pi / 2]
-    yaw_offset = offset[0]
-    yaw = [y + yaw_offset for y in yaw]
-    pitch = [offset[1] for _ in range(4)]
-    extrinsics, intrinsics = yaw_pitch_r_fov_to_extrinsics_intrinsics(yaw, pitch, r, fov)
-    return render_frames(
-        samples, extrinsics, intrinsics, {"resolution": resolution, "bg_color": bg_color}, **kwargs
-    )

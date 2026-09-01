@@ -43,9 +43,8 @@ class Pipeline:
         for k, v in args["models"].items():
             try:
                 _models[k] = models.from_pretrained(f"{path}/{v}")
-            except Exception as e:
-                import warnings
-                warnings.warn(f"Failed to load model '{k}': {e}. Skipping.")
+            except AttributeError:
+                continue
 
         new_pipeline = Pipeline(_models)
         new_pipeline._pretrained_args = args

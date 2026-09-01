@@ -1,15 +1,15 @@
 from typing import *
 import torch
 import math
-from . import DEBUG, BACKEND
+from . import BACKEND
+
+from torch.nn.functional import scaled_dot_product_attention as sdpa
 
 if BACKEND == 'xformers':
     import xformers.ops as xops
 elif BACKEND == 'flash_attn':
     import flash_attn
-elif BACKEND == 'sdpa':
-    from torch.nn.functional import scaled_dot_product_attention as sdpa
-elif BACKEND == 'naive':
+elif BACKEND in ('sdpa', 'naive'):
     pass
 else:
     raise ValueError(f"Unknown attention backend: {BACKEND}")
@@ -24,19 +24,17 @@ def _naive_sdpa(q, k, v, attn_mask=None):
     """
     Naive implementation of scaled dot product attention.
     """
-    q = q.permute(0, 2, 1, 3)   # [N, H, L, C]
-    k = k.permute(0, 2, 1, 3)   # [N, H, L, C]
-    v = v.permute(0, 2, 1, 3)   # [N, H, L, C]
+    q = q.permute(0, 2, 1, 3)
+    k = k.permute(0, 2, 1, 3)
+    v = v.permute(0, 2, 1, 3)
     scale_factor = 1 / math.sqrt(q.size(-1))
     attn_weight = q @ k.transpose(-2, -1) * scale_factor
     if attn_mask is not None:
-        # Mask: [N, Lkv] boolean mask (True = valid, False = masked)
-        # Need to convert to [N, 1, 1, Lkv] and invert (True -> 0, False -> -inf)
-        attn_mask = attn_mask.unsqueeze(1).unsqueeze(2)  # [N, 1, 1, Lkv]
+        attn_mask = attn_mask.unsqueeze(1).unsqueeze(2)
         attn_weight = attn_weight.masked_fill(~attn_mask, float("-inf"))
     attn_weight = torch.softmax(attn_weight, dim=-1)
     out = attn_weight @ v
-    out = out.permute(0, 2, 1, 3)   # [N, L, H, C]
+    out = out.permute(0, 2, 1, 3)
     return out
 
 
@@ -77,7 +75,6 @@ def scaled_dot_product_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tens
     ...
 
 def scaled_dot_product_attention(*args, **kwargs):
-    # Extract attn_mask if present
     attn_mask = kwargs.pop("attn_mask", None)
 
     arg_names_dict = {
@@ -111,32 +108,38 @@ def scaled_dot_product_attention(*args, **kwargs):
         assert len(q.shape) == 4, f"Invalid shape for q, got {q.shape}, expected [N, L, H, Ci]"
         assert len(k.shape) == 4, f"Invalid shape for k, got {k.shape}, expected [N, L, H, Ci]"
         assert len(v.shape) == 4, f"Invalid shape for v, got {v.shape}, expected [N, L, H, Co]"
-        device = q.device    
+        device = q.device
 
-    if BACKEND == 'xformers':
+    backend = BACKEND
+    if attn_mask is not None and backend in ('xformers', 'flash_attn'):
+        backend = 'sdpa'
+
+    if backend == 'xformers':
         if num_all_args == 1:
             q, k, v = qkv.unbind(dim=2)
         elif num_all_args == 2:
             k, v = kv.unbind(dim=2)
-        out = xops.memory_efficient_attention(q, k, v, attn_bias=attn_mask)
-    elif BACKEND == 'flash_attn':
+        out = xops.memory_efficient_attention(q, k, v)
+    elif backend == 'flash_attn':
         if num_all_args == 1:
             out = flash_attn.flash_attn_qkvpacked_func(qkv)
         elif num_all_args == 2:
             out = flash_attn.flash_attn_kvpacked_func(q, kv)
         elif num_all_args == 3:
             out = flash_attn.flash_attn_func(q, k, v)
-    elif BACKEND == 'sdpa':
+    elif backend == 'sdpa':
         if num_all_args == 1:
             q, k, v = qkv.unbind(dim=2)
         elif num_all_args == 2:
             k, v = kv.unbind(dim=2)
-        q = q.permute(0, 2, 1, 3)   # [N, H, L, C]
-        k = k.permute(0, 2, 1, 3)   # [N, H, L, C]
-        v = v.permute(0, 2, 1, 3)   # [N, H, L, C]
-        out = sdpa(q, k, v, attn_mask=attn_mask)  # [N, H, L, C]
-        out = out.permute(0, 2, 1, 3)   # [N, L, H, C]
-    elif BACKEND == 'naive':
+        q = q.permute(0, 2, 1, 3)
+        k = k.permute(0, 2, 1, 3)
+        v = v.permute(0, 2, 1, 3)
+        if attn_mask is not None and attn_mask.dim() == 2:
+            attn_mask = attn_mask[:, None, None, :]
+        out = sdpa(q, k, v, attn_mask=attn_mask)
+        out = out.permute(0, 2, 1, 3)
+    elif backend == 'naive':
         if num_all_args == 1:
             q, k, v = qkv.unbind(dim=2)
         elif num_all_args == 2:
@@ -144,5 +147,5 @@ def scaled_dot_product_attention(*args, **kwargs):
         out = _naive_sdpa(q, k, v, attn_mask=attn_mask)
     else:
         raise ValueError(f"Unknown attention module: {BACKEND}")
-    
+
     return out

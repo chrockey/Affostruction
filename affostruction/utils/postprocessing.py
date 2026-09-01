@@ -12,10 +12,9 @@ from pymeshfix import _meshfix
 import igraph
 import cv2
 from PIL import Image
-from .random_utils import sphere_hammersley_sequence
-from .render_utils import render_multiview
-from ..renderers import GaussianRenderer
-from ..representations import Strivec, Gaussian, MeshExtractResult
+from .sampling import sphere_hammersley_sequence
+from .render import render_multiview
+from ..representations import Gaussian, MeshExtractResult
 
 
 @torch.no_grad()
@@ -43,7 +42,6 @@ def _fill_holes(
         num_views (int): Number of views to rasterize the mesh.
         verbose (bool): Whether to print progress.
     """
-    # Construct cameras
     yaws = []
     pitchs = []
     for i in range(num_views):
@@ -75,7 +73,6 @@ def _fill_holes(
         views.append(view)
     views = torch.stack(views, dim=0)
 
-    # Rasterize
     visblity = torch.zeros(faces.shape[0], dtype=torch.int32, device=verts.device)
     rastctx = utils3d.torch.RastContext(backend="cuda")
     for i in tqdm(
@@ -90,8 +87,6 @@ def _fill_holes(
         visblity[face_id] += 1
     visblity = visblity.float() / num_views
 
-    # Mincut
-    ## construct outer faces
     edges, face2edge, edge_degrees = utils3d.torch.compute_edges(faces)
     boundary_edge_indices = torch.nonzero(edge_degrees == 1).reshape(-1)
     connected_components = utils3d.torch.compute_connected_components(faces, edges, face2edge)
@@ -102,14 +97,12 @@ def _fill_holes(
         )
     outer_face_indices = outer_face_indices.nonzero().reshape(-1)
 
-    ## construct inner faces
     inner_face_indices = torch.nonzero(visblity == 0).reshape(-1)
     if verbose:
         tqdm.write(f"Found {inner_face_indices.shape[0]} invisible faces")
     if inner_face_indices.shape[0] == 0:
         return verts, faces
 
-    ## Construct dual graph (faces as nodes, edges as edges)
     dual_edges, dual_edge2edge = utils3d.torch.compute_dual_graph(face2edge)
     dual_edge2edge = edges[dual_edge2edge]
     dual_edges_weights = torch.norm(
@@ -118,18 +111,14 @@ def _fill_holes(
     if verbose:
         tqdm.write(f"Dual graph: {dual_edges.shape[0]} edges")
 
-    ## solve mincut problem
-    ### construct main graph
     g = igraph.Graph()
     g.add_vertices(faces.shape[0])
     g.add_edges(dual_edges.cpu().numpy())
     g.es["weight"] = dual_edges_weights.cpu().numpy()
 
-    ### source and target
     g.add_vertex("s")
     g.add_vertex("t")
 
-    ### connect invisible faces to source
     g.add_edges(
         [(f, "s") for f in inner_face_indices],
         attributes={
@@ -137,7 +126,6 @@ def _fill_holes(
         },
     )
 
-    ### connect outer faces to target
     g.add_edges(
         [(f, "t") for f in outer_face_indices],
         attributes={
@@ -145,7 +133,6 @@ def _fill_holes(
         },
     )
 
-    ### solve mincut
     cut = g.mincut("s", "t", (np.array(g.es["weight"]) * 1000).tolist())
     remove_face_indices = torch.tensor(
         [v for v in cut.partition[0] if v < faces.shape[0]], dtype=torch.long, device=faces.device
@@ -153,21 +140,18 @@ def _fill_holes(
     if verbose:
         tqdm.write(f"Mincut solved, start checking the cut")
 
-    ### check if the cut is valid with each connected component
     to_remove_cc = utils3d.torch.compute_connected_components(faces[remove_face_indices])
     if debug:
         tqdm.write(f"Number of connected components of the cut: {len(to_remove_cc)}")
     valid_remove_cc = []
     cutting_edges = []
     for cc in to_remove_cc:
-        #### check if the connected component has low visibility
         visblity_median = visblity[remove_face_indices[cc]].median()
         if debug:
             tqdm.write(f"visblity_median: {visblity_median}")
         if visblity_median > 0.25:
             continue
 
-        #### check if the cuting loop is small enough
         cc_edge_indices, cc_edges_degree = torch.unique(
             face2edge[remove_face_indices[cc]], return_counts=True
         )
@@ -276,7 +260,6 @@ def postprocess_mesh(
     if verbose:
         tqdm.write(f"Before postprocess: {vertices.shape[0]} vertices, {faces.shape[0]} faces")
 
-    # Simplify
     if simplify and simplify_ratio > 0:
         mesh = pv.PolyData(
             vertices, np.concatenate([np.full((faces.shape[0], 1), 3), faces], axis=1)
@@ -286,7 +269,6 @@ def postprocess_mesh(
         if verbose:
             tqdm.write(f"After decimate: {vertices.shape[0]} vertices, {faces.shape[0]} faces")
 
-    # Remove invisible faces
     if fill_holes:
         vertices, faces = (
             torch.tensor(vertices).cuda(),
@@ -396,7 +378,6 @@ def bake_texture(
                 uv_map = rast["uv"][0].detach().flip(0)
                 mask = rast["mask"][0].detach().bool() & masks[0]
 
-            # nearest neighbor interpolation
             uv_map = (uv_map * texture_size).floor().long()
             obs = observation[mask]
             uv_map = uv_map[mask]
@@ -412,7 +393,6 @@ def bake_texture(
             texture.reshape(texture_size, texture_size, 3).cpu().numpy() * 255, 0, 255
         ).astype(np.uint8)
 
-        # inpaint
         mask = (
             (texture_weights == 0)
             .cpu()
@@ -483,7 +463,6 @@ def bake_texture(
                     loss += lambda_tv * tv_loss(texture)
                 loss.backward()
                 optimizer.step()
-                # annealing
                 optimizer.param_groups[0]["lr"] = cosine_anealing(
                     optimizer, step, total_steps, 1e-2, 1e-5
                 )
@@ -501,7 +480,7 @@ def bake_texture(
 
 
 def to_glb(
-    app_rep: Union[Strivec, Gaussian],
+    app_rep: Gaussian,
     mesh: MeshExtractResult,
     simplify: float = 0.95,
     fill_holes: bool = True,
@@ -514,7 +493,7 @@ def to_glb(
     Convert a generated asset to a glb file.
 
     Args:
-        app_rep (Union[Strivec, Gaussian]): Appearance representation.
+        app_rep (Gaussian): Appearance representation.
         mesh (MeshExtractResult): Extracted mesh.
         simplify (float): Ratio of faces to remove in simplification.
         fill_holes (bool): Whether to fill holes in the mesh.
@@ -526,7 +505,6 @@ def to_glb(
     vertices = mesh.vertices.cpu().numpy()
     faces = mesh.faces.cpu().numpy()
 
-    # mesh postprocess
     vertices, faces = postprocess_mesh(
         vertices,
         faces,
@@ -541,10 +519,8 @@ def to_glb(
         verbose=verbose,
     )
 
-    # parametrize mesh
     vertices, faces, uvs = parametrize_mesh(vertices, faces)
 
-    # bake texture
     observations, extrinsics, intrinsics = render_multiview(app_rep, resolution=1024, nviews=100)
     masks = [np.any(observation > 0, axis=-1) for observation in observations]
     extrinsics = [extrinsics[i].cpu().numpy() for i in range(len(extrinsics))]
@@ -564,7 +540,6 @@ def to_glb(
     )
     texture = Image.fromarray(texture)
 
-    # rotate mesh (from z-up to y-up)
     vertices = vertices @ np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]])
     material = trimesh.visual.material.PBRMaterial(
         roughnessFactor=1.0,
@@ -575,141 +550,3 @@ def to_glb(
         vertices, faces, visual=trimesh.visual.TextureVisuals(uv=uvs, material=material)
     )
     return mesh
-
-
-def simplify_gs(
-    gs: Gaussian,
-    simplify: float = 0.95,
-    verbose: bool = True,
-):
-    """
-    Simplify 3D Gaussians
-    NOTE: this function is not used in the current implementation for the unsatisfactory performance.
-
-    Args:
-        gs (Gaussian): 3D Gaussian.
-        simplify (float): Ratio of Gaussians to remove in simplification.
-    """
-    if simplify <= 0:
-        return gs
-
-    # simplify
-    observations, extrinsics, intrinsics = render_multiview(gs, resolution=1024, nviews=100)
-    observations = [
-        torch.tensor(obs / 255.0).float().cuda().permute(2, 0, 1) for obs in observations
-    ]
-
-    # Following https://arxiv.org/pdf/2411.06019
-    renderer = GaussianRenderer(
-        {
-            "resolution": 1024,
-            "near": 0.8,
-            "far": 1.6,
-            "ssaa": 1,
-            "bg_color": (0, 0, 0),
-        }
-    )
-    new_gs = Gaussian(**gs.init_params)
-    new_gs._features_dc = gs._features_dc.clone()
-    new_gs._features_rest = gs._features_rest.clone() if gs._features_rest is not None else None
-    new_gs._opacity = torch.nn.Parameter(gs._opacity.clone())
-    new_gs._rotation = torch.nn.Parameter(gs._rotation.clone())
-    new_gs._scaling = torch.nn.Parameter(gs._scaling.clone())
-    new_gs._xyz = torch.nn.Parameter(gs._xyz.clone())
-
-    start_lr = [1e-4, 1e-3, 5e-3, 0.025]
-    end_lr = [1e-6, 1e-5, 5e-5, 0.00025]
-    optimizer = torch.optim.Adam(
-        [
-            {"params": new_gs._xyz, "lr": start_lr[0]},
-            {"params": new_gs._rotation, "lr": start_lr[1]},
-            {"params": new_gs._scaling, "lr": start_lr[2]},
-            {"params": new_gs._opacity, "lr": start_lr[3]},
-        ],
-        lr=start_lr[0],
-    )
-
-    def exp_anealing(optimizer, step, total_steps, start_lr, end_lr):
-        return start_lr * (end_lr / start_lr) ** (step / total_steps)
-
-    def cosine_anealing(optimizer, step, total_steps, start_lr, end_lr):
-        return end_lr + 0.5 * (start_lr - end_lr) * (1 + np.cos(np.pi * step / total_steps))
-
-    _zeta = new_gs.get_opacity.clone().detach().squeeze()
-    _lambda = torch.zeros_like(_zeta)
-    _delta = 1e-7
-    _interval = 10
-    num_target = int((1 - simplify) * _zeta.shape[0])
-
-    with tqdm(total=2500, disable=not verbose, desc="Simplifying Gaussian") as pbar:
-        for i in range(2500):
-            # prune
-            if i % 100 == 0:
-                mask = new_gs.get_opacity.squeeze() > 0.05
-                mask = torch.nonzero(mask).squeeze()
-                new_gs._xyz = torch.nn.Parameter(new_gs._xyz[mask])
-                new_gs._rotation = torch.nn.Parameter(new_gs._rotation[mask])
-                new_gs._scaling = torch.nn.Parameter(new_gs._scaling[mask])
-                new_gs._opacity = torch.nn.Parameter(new_gs._opacity[mask])
-                new_gs._features_dc = new_gs._features_dc[mask]
-                new_gs._features_rest = (
-                    new_gs._features_rest[mask] if new_gs._features_rest is not None else None
-                )
-                _zeta = _zeta[mask]
-                _lambda = _lambda[mask]
-                # update optimizer state
-                for param_group, new_param in zip(
-                    optimizer.param_groups,
-                    [new_gs._xyz, new_gs._rotation, new_gs._scaling, new_gs._opacity],
-                ):
-                    stored_state = optimizer.state[param_group["params"][0]]
-                    if "exp_avg" in stored_state:
-                        stored_state["exp_avg"] = stored_state["exp_avg"][mask]
-                        stored_state["exp_avg_sq"] = stored_state["exp_avg_sq"][mask]
-                    del optimizer.state[param_group["params"][0]]
-                    param_group["params"][0] = new_param
-                    optimizer.state[param_group["params"][0]] = stored_state
-
-            opacity = new_gs.get_opacity.squeeze()
-
-            # sparisfy
-            if i % _interval == 0:
-                _zeta = _lambda + opacity.detach()
-                if opacity.shape[0] > num_target:
-                    index = _zeta.topk(num_target)[1]
-                    _m = torch.ones_like(_zeta, dtype=torch.bool)
-                    _m[index] = 0
-                    _zeta[_m] = 0
-                _lambda = _lambda + opacity.detach() - _zeta
-
-            # sample a random view
-            view_idx = np.random.randint(len(observations))
-            observation = observations[view_idx]
-            extrinsic = extrinsics[view_idx]
-            intrinsic = intrinsics[view_idx]
-
-            color = renderer.render(new_gs, extrinsic, intrinsic)["color"]
-            rgb_loss = torch.nn.functional.l1_loss(color, observation)
-            loss = rgb_loss + _delta * torch.sum(torch.pow(_lambda + opacity - _zeta, 2))
-
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            # update lr
-            for j in range(len(optimizer.param_groups)):
-                optimizer.param_groups[j]["lr"] = cosine_anealing(
-                    optimizer, i, 2500, start_lr[j], end_lr[j]
-                )
-
-            pbar.set_postfix(
-                {"loss": rgb_loss.item(), "num": opacity.shape[0], "lambda": _lambda.mean().item()}
-            )
-            pbar.update()
-
-    new_gs._xyz = new_gs._xyz.data
-    new_gs._rotation = new_gs._rotation.data
-    new_gs._scaling = new_gs._scaling.data
-    new_gs._opacity = new_gs._opacity.data
-
-    return new_gs

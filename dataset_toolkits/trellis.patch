@@ -1,0 +1,201 @@
+--- a/blender_script/render.py
++++ b/blender_script/render.py
+@@ -33,6 +33,11 @@
+     'TARGA': 'tga'
+ }
+ 
++def _view_layer_name():
++    # .blend assets (e.g. Toys4k) name it 'ViewLayer'; imported assets 'View Layer'
++    return 'View Layer' if 'View Layer' in bpy.context.scene.view_layers else 'ViewLayer'
++
++
+ def init_render(engine='CYCLES', resolution=512, geo_mode=False):
+     bpy.context.scene.render.engine = engine
+     bpy.context.scene.render.resolution_x = resolution
+@@ -42,18 +47,24 @@
+     bpy.context.scene.render.image_settings.color_mode = 'RGBA'
+     bpy.context.scene.render.film_transparent = True
+     
+-    bpy.context.scene.cycles.device = 'GPU'
+-    bpy.context.scene.cycles.samples = 128 if not geo_mode else 1
+-    bpy.context.scene.cycles.filter_type = 'BOX'
+-    bpy.context.scene.cycles.filter_width = 1
+-    bpy.context.scene.cycles.diffuse_bounces = 1
+-    bpy.context.scene.cycles.glossy_bounces = 1
+-    bpy.context.scene.cycles.transparent_max_bounces = 3 if not geo_mode else 0
+-    bpy.context.scene.cycles.transmission_bounces = 3 if not geo_mode else 1
+-    bpy.context.scene.cycles.use_denoising = True
+-        
+-    bpy.context.preferences.addons['cycles'].preferences.get_devices()
+-    bpy.context.preferences.addons['cycles'].preferences.compute_device_type = 'CUDA'
++    if engine == 'CYCLES':
++        bpy.context.scene.cycles.device = 'GPU'
++        bpy.context.scene.cycles.samples = 128 if not geo_mode else 1
++        bpy.context.scene.cycles.filter_type = 'BOX'
++        bpy.context.scene.cycles.filter_width = 1
++        bpy.context.scene.cycles.diffuse_bounces = 1
++        bpy.context.scene.cycles.glossy_bounces = 1
++        bpy.context.scene.cycles.transparent_max_bounces = 3 if not geo_mode else 0
++        bpy.context.scene.cycles.transmission_bounces = 3 if not geo_mode else 1
++        # denoising smooths the depth pass, which we unproject — keep it off
++        bpy.context.scene.cycles.use_denoising = False
++
++        bpy.context.preferences.addons['cycles'].preferences.get_devices()
++        bpy.context.preferences.addons['cycles'].preferences.compute_device_type = 'CUDA'
++    else:
++        # EEVEE renders the conditioning views ~an order of magnitude faster
++        bpy.context.scene.eevee.taa_render_samples = 4
++        bpy.context.scene.eevee.gi_diffuse_bounces = 0
+     
+ def init_nodes(save_depth=False, save_normal=False, save_albedo=False, save_mist=False):
+     if not any([save_depth, save_normal, save_albedo, save_mist]):
+@@ -62,10 +73,11 @@
+     spec_nodes = {}
+     
+     bpy.context.scene.use_nodes = True
+-    bpy.context.scene.view_layers['View Layer'].use_pass_z = save_depth
+-    bpy.context.scene.view_layers['View Layer'].use_pass_normal = save_normal
+-    bpy.context.scene.view_layers['View Layer'].use_pass_diffuse_color = save_albedo
+-    bpy.context.scene.view_layers['View Layer'].use_pass_mist = save_mist
++    view_layer = bpy.context.scene.view_layers[_view_layer_name()]
++    view_layer.use_pass_z = save_depth
++    view_layer.use_pass_normal = save_normal
++    view_layer.use_pass_diffuse_color = save_albedo
++    view_layer.use_pass_mist = save_mist
+     
+     nodes = bpy.context.scene.node_tree.nodes
+     links = bpy.context.scene.node_tree.links
+@@ -298,7 +310,7 @@
+     bsdf.inputs[1].default_value = 1
+     output = new_mat.node_tree.nodes.new('ShaderNodeOutputMaterial')
+     new_mat.node_tree.links.new(bsdf.outputs['BSDF'], output.inputs['Surface'])
+-    bpy.context.scene.view_layers['View Layer'].material_override = new_mat
++    bpy.context.scene.view_layers[_view_layer_name()].material_override = new_mat
+ 
+ def unhide_all_objects() -> None:
+     """Unhides all objects in the scene.
+--- a/build_metadata.py
++++ b/build_metadata.py
+@@ -203,7 +203,7 @@
+                     if need_process('rendered') and metadata.loc[sha256, 'rendered'] == False and \
+                         os.path.exists(os.path.join(opt.output_dir, 'renders', sha256, 'transforms.json')):
+                         metadata.loc[sha256, 'rendered'] = True
+-                    if need_process('voxelized') and metadata.loc[sha256, 'rendered'] == True and metadata.loc[sha256, 'voxelized'] == False and \
++                    if need_process('voxelized') and (metadata.loc[sha256, 'rendered'] == True or metadata.loc[sha256, 'cond_rendered'] == True) and metadata.loc[sha256, 'voxelized'] == False and \
+                         os.path.exists(os.path.join(opt.output_dir, 'voxels', f'{sha256}.ply')):
+                         try:
+                             pts = utils3d.io.read_ply(os.path.join(opt.output_dir, 'voxels', f'{sha256}.ply'))[0]
+@@ -217,14 +217,14 @@
+                     for model in image_models:
+                         if need_process(f'feature_{model}') and \
+                             metadata.loc[sha256, f'feature_{model}'] == False and \
+-                            metadata.loc[sha256, 'rendered'] == True and \
++                            (metadata.loc[sha256, 'rendered'] == True or metadata.loc[sha256, 'cond_rendered'] == True) and \
+                             metadata.loc[sha256, 'voxelized'] == True and \
+                             os.path.exists(os.path.join(opt.output_dir, 'features', model, f'{sha256}.npz')):
+                             metadata.loc[sha256, f'feature_{model}'] = True
+                     for model in latent_models:
+                         if need_process(f'latent_{model}') and \
+                             metadata.loc[sha256, f'latent_{model}'] == False and \
+-                            metadata.loc[sha256, 'rendered'] == True and \
++                            (metadata.loc[sha256, 'rendered'] == True or metadata.loc[sha256, 'cond_rendered'] == True) and \
+                             metadata.loc[sha256, 'voxelized'] == True and \
+                             os.path.exists(os.path.join(opt.output_dir, 'latents', model, f'{sha256}.npz')):
+                             metadata.loc[sha256, f'latent_{model}'] = True
+--- a/encode_ss_latent.py
++++ b/encode_ss_latent.py
+@@ -13,7 +13,7 @@
+ from concurrent.futures import ThreadPoolExecutor
+ from queue import Queue
+ 
+-import trellis.models as models
++import affostruction.models as models
+ 
+ 
+ torch.set_grad_enabled(False)
+--- a/render.py
++++ b/render.py
+@@ -39,18 +39,21 @@
+     fov = [40 / 180 * np.pi] * num_views
+     views = [{'yaw': y, 'pitch': p, 'radius': r, 'fov': f} for y, p, r, f in zip(yaws, pitchs, radius, fov)]
+     
+-    args = [
+-        BLENDER_PATH, '-b', '-P', os.path.join(os.path.dirname(__file__), 'blender_script', 'render.py'),
++    args = ['xvfb-run', '-a', '-s', '-screen 0 1280x720x24 +extension GLX']
++    if file_path.endswith('.blend'):
++        args.extend([BLENDER_PATH, file_path, '-b', '-P'])
++    else:
++        args.extend([BLENDER_PATH, '-b', '-P'])
++    args.extend([
++        os.path.join(os.path.dirname(__file__), 'blender_script', 'render.py'),
+         '--',
+         '--views', json.dumps(views),
+         '--object', os.path.expanduser(file_path),
+         '--resolution', '512',
+-        '--output_folder', output_folder,
+-        '--engine', 'CYCLES',
++        '--output_folder', os.path.expanduser(output_folder),
++        '--engine', 'BLENDER_EEVEE',
+         '--save_mesh',
+-    ]
+-    if file_path.endswith('.blend'):
+-        args.insert(1, file_path)
++    ])
+     
+     call(args, stdout=DEVNULL, stderr=DEVNULL)
+     
+--- a/render_cond.py
++++ b/render_cond.py
+@@ -45,14 +45,23 @@
+     fov = [2 * np.arcsin(np.sqrt(3) / 2 / r) for r in radius]
+     views = [{'yaw': y, 'pitch': p, 'radius': r, 'fov': f} for y, p, r, f in zip(yaws, pitchs, radius, fov)]
+     
+-    args = [
+-        BLENDER_PATH, '-b', '-P', os.path.join(os.path.dirname(__file__), 'blender_script', 'render.py'),
++    args = ['xvfb-run', '-a', '-s', '-screen 0 1280x720x24 +extension GLX']
++    if file_path.endswith('.blend'):
++        args.extend([BLENDER_PATH, file_path, '-b', '-P'])
++    else:
++        args.extend([BLENDER_PATH, '-b', '-P'])
++    args.extend([
++        os.path.join(os.path.dirname(__file__), 'blender_script', 'render.py'),
+         '--',
+         '--views', json.dumps(views),
+         '--object', os.path.expanduser(file_path),
+         '--output_folder', os.path.expanduser(output_folder),
+         '--resolution', '1024',
+-    ]
++        '--engine', 'BLENDER_EEVEE',
++        '--save_mesh',
++        # depth maps are the extra conditioning signal Affostruction needs
++        '--save_depth',
++    ])
+     if file_path.endswith('.blend'):
+         args.insert(1, file_path)
+     
+--- a/voxelize.py
++++ b/voxelize.py
+@@ -12,7 +12,11 @@
+ 
+ 
+ def _voxelize(file, sha256, output_dir):
+-    mesh = o3d.io.read_triangle_mesh(os.path.join(output_dir, 'renders', sha256, 'mesh.ply'))
++    # datasets with conditioning renders only (e.g. Affogato) keep mesh.ply there
++    mesh_path = os.path.join(output_dir, 'renders', sha256, 'mesh.ply')
++    if not os.path.exists(mesh_path):
++        mesh_path = os.path.join(output_dir, 'renders_cond', sha256, 'mesh.ply')
++    mesh = o3d.io.read_triangle_mesh(mesh_path)
+     # clamp vertices to the range [-0.5, 0.5]
+     vertices = np.clip(np.asarray(mesh.vertices), -0.5 + 1e-6, 0.5 - 1e-6)
+     mesh.vertices = o3d.utility.Vector3dVector(vertices)
+@@ -54,7 +58,9 @@
+             metadata = metadata[metadata['aesthetic_score'] >= opt.filter_low_aesthetic_score]
+         if 'rendered' not in metadata.columns:
+             raise ValueError('metadata.csv does not have "rendered" column, please run "build_metadata.py" first')
+-        metadata = metadata[metadata['rendered'] == True]
++        rendered = metadata.get('rendered', False) == True
++        cond_rendered = metadata.get('cond_rendered', False) == True
++        metadata = metadata[rendered | cond_rendered]
+         if 'voxelized' in metadata.columns:
+             metadata = metadata[metadata['voxelized'] == False]
+     else:

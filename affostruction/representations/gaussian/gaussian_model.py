@@ -118,7 +118,6 @@ class Gaussian:
 
     def construct_list_of_attributes(self):
         l = ["x", "y", "z", "nx", "ny", "nz"]
-        # All channels except the 3 DC
         for i in range(self._features_dc.shape[1] * self._features_dc.shape[2]):
             l.append(f"f_dc_{i}")
         l.append("opacity")
@@ -185,7 +184,6 @@ class Gaussian:
             features_extra = np.zeros((xyz.shape[0], len(extra_f_names)))
             for idx, attr_name in enumerate(extra_f_names):
                 features_extra[:, idx] = np.asarray(plydata.elements[0][attr_name])
-            # Reshape (P,F*SH_coeffs) to (P, F, SH_coeffs except DC)
             features_extra = features_extra.reshape(
                 (features_extra.shape[0], 3, (self.max_sh_degree + 1) ** 2 - 1)
             )
@@ -211,7 +209,6 @@ class Gaussian:
             rotation = np.matmul(rotation, transform)
             rotation = utils3d.numpy.matrix_to_quaternion(rotation)
 
-        # convert to actual gaussian attributes
         xyz = torch.tensor(xyz, dtype=torch.float, device=self.device)
         features_dc = (
             torch.tensor(features_dc, dtype=torch.float, device=self.device)
@@ -228,7 +225,6 @@ class Gaussian:
         scales = torch.exp(torch.tensor(scales, dtype=torch.float, device=self.device))
         rots = torch.tensor(rots, dtype=torch.float, device=self.device)
 
-        # convert to _hidden attributes
         self._xyz = (xyz - self.aabb[None, :3]) / self.aabb[None, 3:]
         self._features_dc = features_dc
         if self.sh_degree > 0:

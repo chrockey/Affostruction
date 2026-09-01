@@ -1,4 +1,4 @@
-SPCONV_ALGO = "auto"  # 'auto', 'implicit_gemm', 'native'
+SPCONV_ALGO = "auto"
 
 
 def __from_env():
